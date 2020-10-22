@@ -1,0 +1,62 @@
+.brand{
+    font-size:70px;
+    font-family: 'Luckiest Guy', cursive;
+    width:450px;
+    height:150px;
+    background-color: rgb(29, 65, 50);
+    text-align: center;
+    position:fixed;
+    color:rgb(168, 229, 240);
+    border:3px solid rgb(29, 65, 50);
+    padding:60px 0 0 0;
+    border-radius:50% 0% 50% 0%;
+}
+.brand:hover{
+    color:rgb(168, 229, 240);
+    background-color: rgb(21, 39, 31);
+    padding:60px 0 0 0;
+    border-radius:50% 0% 50% 0%;
+}
+.up{
+    position:fixed;
+    width:100%;
+    height:70px;
+    border-bottom:0px solid rgb(255, 255, 255);
+    text-align:right;
+    background-color:rgb(41, 73, 75);
+    border-radius:0% 0% 0% 0%;
+    /*margin:0 0 0 200px;*/
+}
+.right{
+    position:fixed;
+    width:90px;
+    height:600px;
+    border-right:0px solid black;
+    background-color:rgb(118, 166, 168);
+    border-radius:0% 0% 0% 0%;
+    /*margin:200px 0 0 0;*/
+}
+span{
+    margin:20px;
+    font-size:30px;
+    font-family:arial;
+    padding:20px;
+}
+.span:hover{
+    margin:20px;
+    font-size:30px;
+    font-family:arial;
+    padding:20px;
+    color:white;
+}
+.deco{
+    text-decoration:none;
+    color:rgb(149, 222, 240);
+}
+body{
+    background-image: url("images/wp2.jpg");
+}
+p, blockquote{
+    margin:0px 0 0 150px;
+    text-align:justify;
+}

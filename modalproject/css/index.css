@@ -1,0 +1,106 @@
+html, body{
+    /*It gets the webpage without padding and margin*/
+    font-family:'Cinzel', 'arial';
+    padding:0;
+    margin:0;
+    height:100%;
+}
+body{
+    /*It takes the bg image of an anterior carpet, the bg size
+    tells us it covers the whole webpage, the position is center from the top and
+    from the left*/
+    background-image:url("../images/img4.jpg");
+    background-size:cover;
+    background-position:center center;
+}
+.button{
+    /*border:10px solid red;*/
+    font-family:'Cinzel', 'arial';
+    font-size:22px;
+    text-align:center;
+    line-height:44px;
+    background-color:#9ca09c;
+    color:rgb(40, 49, 33);
+    /*Radius is that the botton doesn't end up in square, it takes round*/
+    border-radius:10px;
+    padding:5px 25px 5px 25px;
+    outline 0 !important;
+    box-shadow: 0 4px 0 rgb(19, 32, 23), 0 5px 5px 1px black;
+    /*animations of transition to change color and size when the botton is active*/
+    transition: all 0.15s ease-in-out;
+    margin-top:-4px;
+}
+.button:hover{
+    background-color:#223627;
+    box-shadow: 0 4px 0 #235f3a, 0 5px 5 px 1px rgba(0,0,0,0.4);
+    color:white;
+}
+.button.active{
+    margin-top:-12px;
+    box-shadow: none;
+}
+.center{
+    /*helps us to colocate the button at the center*/
+    position:absolute;
+    top: 50%;
+    left:50%;
+    transform:translate(-50%, -50%);
+}
+#modal-bg{
+    background-color: rgba(0,0,0,0.45);
+    position:fixed;
+    top:0;
+    left:0;
+    height:100%;
+    width:100%;
+    z-index:-10;
+    opacity:0;
+    transition: opacity 0.25s ease-in-out, z-index 0.25s ease-in-out;
+}
+#modal-bg.active{
+    opacity:1;
+    z-index:10;
+}
+#modal-bx{
+    background-color:white;
+    position:fixed;
+    top:50%;
+    left:50%;
+    transform:translate(-50%, -50%);
+    max-width:800px;
+    min-width:600px;
+    padding:25px;
+    border-radius:20px;
+    opacity:0;
+    z-index:-10;
+    transition: opacity 0.25s ease-in-out, z-index 0.25s ease-in-out;
+}
+#modal-bx.active{
+    opacity:1;
+    z-index:11;
+}
+.divbutton{
+    text-align:right;
+}
+.button--close{
+    background-color:#f5f5f5;
+    color:#999;
+    box-shadow: 0 4px 0 #0b110d, 0 5px 5 px 1px rgba(0,0,0,0.4);
+    border:1px solod #f5f5f5;
+}
+.button--close:hover{
+    background-color:#f5f5f5;
+    box-shadow: 0 4px 0 #1e442b, 0 5px 5 px 1px rgba(0,0,0,0.4);
+    color:rgb(46, 82, 49);
+}
+.button--accept{
+    background-color:#2a4434;
+    color:rgb(160, 250, 137);
+    box-shadow: 0 4px 0 #0b110d, 0 5px 5 px 1px rgba(0,0,0,0.4);
+    border:1px solod #f5f5f5;
+}
+.button--accept:hover{
+    background-color:#0f1611;
+    box-shadow: 0 4px 0 #1e442b, 0 5px 5 px 1px rgba(0,0,0,0.4);
+    color:white;
+}

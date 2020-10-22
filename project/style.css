@@ -1,0 +1,30 @@
+#brand{
+    margin:20px;
+    font-family:arial;
+    font-size:60px;
+    text-decoration: none;
+    color:black;
+}
+.inline{
+    margin:20px;
+    display:inline-block;
+    font-size:30px;
+    font-family:arial;
+}
+a{
+    text-decoration: none;
+    color:black;
+}
+.para{
+    font-family:arial;
+    font-size:20px;
+    text-align:justify;
+    margin:50px;
+}
+body{
+    background-image: url("images/wp2.jpg");
+    background-repeat: repeat;
+}
+nav{
+    position:fixed;
+}

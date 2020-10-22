@@ -1,0 +1,17 @@
+.rwd{
+    padding:50px;
+    color:black;
+    font-family:arial;
+    font-size:20px;
+    background-color:tomato;
+}
+@media(max-width:1000px){
+    .rwd{
+        background-color:teal;
+    }
+}
+@media(max-width:500px){
+    .rwd{
+        background-color:rebeccapurple;
+    }
+}

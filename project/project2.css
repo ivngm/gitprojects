@@ -1,0 +1,48 @@
+.inline{
+    font-size:100px;
+    font-family:arial;
+    border:0px solid black;
+    text-decoration:none;
+    color:black;
+    width:33%;
+    height:150px;
+    position:fixed;
+    text-align:center;
+    background-color: tomato;
+}
+.menuup{
+    position:fixed;
+    height:70px;
+    width:100%;
+    border:5px solid black;
+}
+.menuright{
+    position:fixed;
+    height:600px;
+    width:70px;
+    border:5px solid black;
+}
+.menuhead{
+    position:fixed;
+    width:450px;
+    height:70px;
+    border:5px solid black;
+}
+.menu0{
+    position:fixed;
+    height:150px;
+    width:70px;
+    border:5px solid black;
+}
+.outline{
+    font-size: 20px;
+    font-family:arial;
+}
+.para{
+    text-align: right;
+    font-size:30px;
+}
+.size{
+    width:450px;
+    height:70px;
+}

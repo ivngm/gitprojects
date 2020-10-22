@@ -1,0 +1,25 @@
+        body{
+        background-color:black;
+        color:white;
+        }
+        h1, h2{
+            color:grey;
+            text-align: center;
+        }
+        a{
+            color:grey;
+            text-decoration:none;
+        }
+        input, button{
+            width:70%;
+            border:1px solid grey;
+            padding:5px;
+        }
+        .titles{
+            color:whitesmoke;
+            font-size: 50px;
+        }
+        th{
+            text-align: left;
+            font-size: 30px;
+        }
