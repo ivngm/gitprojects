@@ -1,0 +1,13 @@
+
+import java.util.Scanner;
+
+public class HiLo {
+
+	public static void main(String[] args) {
+		// get ready for the player to use the keyboard
+		Scanner scan = new Scanner(System.in);
+		
+
+	}
+
+}
