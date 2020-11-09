@@ -1,4 +1,6 @@
 import collections
+import re
+
 from importlib import import_module
 
 from django import forms
@@ -8,6 +10,7 @@ from django.template.loader import render_to_string
 from django.utils.encoding import force_str
 from django.utils.safestring import mark_safe
 from django.utils.text import capfirst
+
 
 __all__ = ['BaseBlock', 'Block', 'BoundBlock', 'DeclarativeSubBlocksMetaclass', 'BlockWidget', 'BlockField']
 
@@ -94,6 +97,13 @@ class Block(metaclass=BaseBlock):
         return mark_safe('\n'.join(declarations))
 
     def __init__(self, **kwargs):
+        if 'classname' in self._constructor_args[1]:
+            # Adding this so that migrations are not triggered
+            # when form_classname is used instead of classname
+            # in the initialisation of the FieldBlock
+            classname = self._constructor_args[1].pop('classname')
+            self._constructor_args[1].setdefault('form_classname', classname)
+
         self.meta = self._meta_class()
 
         for attr, value in kwargs.items():
@@ -133,8 +143,8 @@ class Block(metaclass=BaseBlock):
 
     def js_initializer(self):
         """
-        Returns a Javascript expression string, or None if this block does not require any
-        Javascript behaviour. This expression evaluates to an initializer function, a function that
+        Returns a JavaScript expression string, or None if this block does not require any
+        JavaScript behaviour. This expression evaluates to an initializer function, a function that
         takes the ID prefix and applies JS behaviour to the block instance with that value and prefix.
 
         The parent block of this block (or the top-level page code) must ensure that this
@@ -209,6 +219,14 @@ class Block(metaclass=BaseBlock):
         value, and turn this back into an actual image object here).
         """
         return value
+
+    def bulk_to_python(self, values):
+        """
+        Apply the to_python conversion to a list of values. The default implementation simply
+        iterates over the list; subclasses may optimise this, e.g. by combining database lookups
+        into a single query.
+        """
+        return [self.to_python(value) for value in values]
 
     def get_prep_value(self, value):
         """
@@ -314,6 +332,16 @@ class Block(metaclass=BaseBlock):
             errors.append(checks.Error(
                 "Block name %r is invalid" % self.name,
                 "Block names cannot begin with a digit",
+                obj=kwargs.get('field', self),
+                id='wagtailcore.E001',
+            ))
+
+        if not errors and not re.match(r'^[_a-zA-Z][_a-zA-Z0-9]*$', self.name):
+            errors.append(checks.Error(
+                "Block name %r is invalid" % self.name,
+                "Block names should follow standard Python conventions for "
+                "variable names: alpha-numeric and underscores, and cannot "
+                "begin with a digit",
                 obj=kwargs.get('field', self),
                 id='wagtailcore.E001',
             ))

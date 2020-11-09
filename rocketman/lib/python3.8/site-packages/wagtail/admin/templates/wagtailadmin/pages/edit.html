@@ -33,9 +33,15 @@
                 {% icon name="doc-empty-inverse" class_name="default" %}
                 {{ content_type.model_class.get_verbose_name }}
             </li>
+            {% if locale %}
+            <li class="header-meta--locale">
+                {% include "wagtailadmin/shared/locale_selector.html" %}
+            </li>
+            {% endif %}
         </ul>
     </header>
 
+    {% block form %}
     <form id="page-edit-form" action="{% url 'wagtailadmin_pages:edit' page.id %}" method="POST" novalidate{% if form.is_multipart %} enctype="multipart/form-data"{% endif %}>
         {% csrf_token %}
 
@@ -82,6 +88,7 @@
             </nav>
         </footer>
     </form>
+    {% endblock %}
 
 {% endblock %}
 
@@ -103,7 +110,7 @@
     {{ action_menu.media.js }}
 
     {% comment %}
-        Additional HTML code that edit handlers define through 'html_declarations'. (Technically this isn't Javascript, but it will generally be data that exists for Javascript to work with...)
+        Additional HTML code that edit handlers define through 'html_declarations'. (Technically this isn't JavaScript, but it will generally be data that exists for JavaScript to work with...)
     {% endcomment %}
     {{ edit_handler.html_declarations }}
 

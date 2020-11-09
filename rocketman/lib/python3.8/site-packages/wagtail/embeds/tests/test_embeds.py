@@ -1,6 +1,7 @@
 import json
 import unittest
 import urllib.request
+
 from unittest.mock import patch
 from urllib.error import URLError
 
@@ -15,12 +16,13 @@ from wagtail.embeds.blocks import EmbedBlock, EmbedValue
 from wagtail.embeds.embeds import get_embed
 from wagtail.embeds.exceptions import EmbedNotFoundException, EmbedUnsupportedProviderException
 from wagtail.embeds.finders import get_finders
-from wagtail.embeds.finders.embedly import EmbedlyFinder as EmbedlyFinder
 from wagtail.embeds.finders.embedly import AccessDeniedEmbedlyException, EmbedlyException
+from wagtail.embeds.finders.embedly import EmbedlyFinder as EmbedlyFinder
 from wagtail.embeds.finders.oembed import OEmbedFinder as OEmbedFinder
 from wagtail.embeds.models import Embed
 from wagtail.embeds.templatetags.wagtailembeds_tags import embed_tag
 from wagtail.tests.utils import WagtailTestUtils
+
 
 try:
     import embedly  # noqa
@@ -382,7 +384,7 @@ class TestOembed(TestCase):
         result = OEmbedFinder().find_embed("https://vimeo.com/217403396")
         self.assertEqual(result['type'], 'video')
         request = urlopen.call_args[0][0]
-        self.assertEqual(request.get_full_url().split('?')[0], "http://www.vimeo.com/api/oembed.json")
+        self.assertEqual(request.get_full_url().split('?')[0], "https://www.vimeo.com/api/oembed.json")
 
 
 class TestEmbedTag(TestCase):

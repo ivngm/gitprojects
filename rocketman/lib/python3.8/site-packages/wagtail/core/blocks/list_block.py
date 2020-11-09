@@ -1,3 +1,5 @@
+import itertools
+
 from django import forms
 from django.core.exceptions import ValidationError
 from django.forms.utils import ErrorList
@@ -10,6 +12,7 @@ from wagtail.core.utils import escape_script
 
 from .base import Block
 from .utils import js_dict
+
 
 __all__ = ['ListBlock']
 
@@ -31,6 +34,10 @@ class ListBlock(Block):
 
         self.dependencies = [self.child_block]
         self.child_js_initializer = self.child_block.js_initializer()
+
+    def get_default(self):
+        # wrap with list() so that each invocation of get_default returns a distinct instance
+        return list(self.meta.default)
 
     @property
     def media(self):
@@ -133,15 +140,24 @@ class ListBlock(Block):
         return result
 
     def to_python(self, value):
-        # If child block supports bulk retrieval, use it.
-        if hasattr(self.child_block, 'bulk_to_python'):
-            return self.child_block.bulk_to_python(value)
+        # 'value' is a list of child block values; use bulk_to_python to convert them all in one go
+        return self.child_block.bulk_to_python(value)
 
-        # Otherwise recursively call to_python on each child and return as a list.
-        return [
-            self.child_block.to_python(item)
-            for item in value
-        ]
+    def bulk_to_python(self, values):
+        # 'values' is a list of lists of child block values; concatenate them into one list so that
+        # we can make a single call to child_block.bulk_to_python
+        lengths = [len(val) for val in values]
+        raw_values = list(itertools.chain.from_iterable(values))
+        converted_values = self.child_block.bulk_to_python(raw_values)
+
+        # split converted_values back into sub-lists of the original lengths
+        result = []
+        offset = 0
+        for sublist_len in lengths:
+            result.append(converted_values[offset:offset + sublist_len])
+            offset += sublist_len
+
+        return result
 
     def get_prep_value(self, value):
         # recursively call get_prep_value on children and return as a list

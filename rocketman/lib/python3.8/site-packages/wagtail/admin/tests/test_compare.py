@@ -9,8 +9,8 @@ from wagtail.images import get_image_model
 from wagtail.images.tests.utils import get_test_image_file
 from wagtail.tests.testapp.models import (
     AdvertWithCustomPrimaryKey, EventCategory, EventPage, EventPageSpeaker,
-    HeadCountRelatedModelUsingPK, SimplePage, SnippetChooserModelWithCustomPrimaryKey,
-    StreamPage, TaggedPage)
+    HeadCountRelatedModelUsingPK, SimplePage, SnippetChooserModelWithCustomPrimaryKey, StreamPage,
+    TaggedPage)
 
 
 class TestFieldComparison(TestCase):
@@ -414,6 +414,28 @@ class TestStreamFieldComparison(TestCase):
                 <dt>Price</dt>
                 <dd><span class="deletion">75p</span><span class="addition">85p</span></dd>
             </dl></div>
+        """
+        self.assertHTMLEqual(comparison.htmldiff(), expected)
+        self.assertIsInstance(comparison.htmldiff(), SafeString)
+        self.assertTrue(comparison.has_changed())
+
+    def test_compare_nested_streamblock_uses_comparison_class(self):
+        field = StreamPage._meta.get_field('body')
+        stream_block = field.stream_block.child_blocks['books']
+        comparison = self.comparison_class(
+            field,
+            StreamPage(body=StreamValue(field.stream_block, [
+                ('books', StreamValue(stream_block, [('title', 'The Old Man and the Sea', '10')]), '1'),
+            ])),
+            StreamPage(body=StreamValue(field.stream_block, [
+                ('books', StreamValue(stream_block, [('author', 'Oscar Wilde', '11')]), '1'),
+            ])),
+        )
+        expected = """
+            <div class="comparison__child-object">
+                <div class="comparison__child-object addition">Oscar Wilde</div>\n
+                <div class="comparison__child-object deletion">The Old Man and the Sea</div>
+            </div>
         """
         self.assertHTMLEqual(comparison.htmldiff(), expected)
         self.assertIsInstance(comparison.htmldiff(), SafeString)
@@ -1031,7 +1053,6 @@ class TestChildRelationComparisonUsingPK(TestCase):
         self.assertEqual(map_backwards, {0: 0})  # map head count 23 to 22
         self.assertEqual(added, [1])  # add second head count
         self.assertEqual(deleted, [])
-
 
     def test_hasnt_changed_with_different_id(self):
         # Both of the child objects have the same field content but have a

@@ -1,6 +1,7 @@
 import pytz
 
 from django.conf import settings
+from django.utils.dates import MONTHS, WEEKDAYS, WEEKDAYS_ABBR
 from django.utils.translation import gettext as _
 from django.utils.translation import gettext_lazy
 
@@ -15,9 +16,11 @@ WAGTAILADMIN_PROVIDED_LANGUAGES = [
     ('el', gettext_lazy('Greek')),
     ('en', gettext_lazy('English')),
     ('es', gettext_lazy('Spanish')),
+    ('et', gettext_lazy('Estonian')),
     ('fi', gettext_lazy('Finnish')),
     ('fr', gettext_lazy('French')),
     ('gl', gettext_lazy('Galician')),
+    ('hr', gettext_lazy('Croatian')),
     ('hu', gettext_lazy('Hungarian')),
     ('id-id', gettext_lazy('Indonesian')),
     ('is-is', gettext_lazy('Icelandic')),
@@ -45,7 +48,7 @@ WAGTAILADMIN_PROVIDED_LANGUAGES = [
 ]
 
 
-# Translatable strings to be made available to Javascript code
+# Translatable strings to be made available to JavaScript code
 # as the wagtailConfig.STRINGS object
 def get_js_translation_strings():
     return {
@@ -76,38 +79,12 @@ def get_js_translation_strings():
         'VIEW_CHILD_PAGES_OF_PAGE': _('View child pages of \'{title}\''),
         'PAGE_EXPLORER': _('Page explorer'),
 
-        'MONTHS': [
-            _('January'),
-            _('February'),
-            _('March'),
-            _('April'),
-            _('May'),
-            _('June'),
-            _('July'),
-            _('August'),
-            _('September'),
-            _('October'),
-            _('November'),
-            _('December')
-        ],
-        'WEEKDAYS': [
-            _('Sunday'),
-            _('Monday'),
-            _('Tuesday'),
-            _('Wednesday'),
-            _('Thursday'),
-            _('Friday'),
-            _('Saturday')
-        ],
-        'WEEKDAYS_SHORT': [
-            _('Sun'),
-            _('Mon'),
-            _('Tue'),
-            _('Wed'),
-            _('Thu'),
-            _('Fri'),
-            _('Sat')
-        ]
+        'MONTHS': [str(m) for m in MONTHS.values()],
+
+        # Django's WEEKDAYS list begins on Monday, but ours should start on Sunday, so start
+        # counting from -1 and use modulo 7 to get an array index
+        'WEEKDAYS': [str(WEEKDAYS[d % 7]) for d in range(-1, 6)],
+        'WEEKDAYS_SHORT': [str(WEEKDAYS_ABBR[d % 7]) for d in range(-1, 6)],
     }
 
 

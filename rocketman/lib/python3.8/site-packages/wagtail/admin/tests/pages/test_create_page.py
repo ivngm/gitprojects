@@ -1,7 +1,7 @@
 import datetime
+
 from unittest import mock
 
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
 from django.http import HttpRequest, HttpResponse
 from django.test import TestCase
@@ -11,11 +11,11 @@ from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
 
 from wagtail.admin.tests.pages.timestamps import submittable_timestamp
-from wagtail.core.models import GroupPagePermission, Page, PageRevision
+from wagtail.core.models import GroupPagePermission, Locale, Page, PageRevision
 from wagtail.core.signals import page_published
 from wagtail.tests.testapp.models import (
-    BusinessChild, BusinessIndex, BusinessSubIndex, DefaultStreamPage, PersonPage,
-    SimplePage, SingletonPage, SingletonPageViaMaxCount, StandardChild, StandardIndex)
+    BusinessChild, BusinessIndex, BusinessSubIndex, DefaultStreamPage, PersonPage, SimplePage,
+    SingletonPage, SingletonPageViaMaxCount, StandardChild, StandardIndex)
 from wagtail.tests.utils import WagtailTestUtils
 
 
@@ -88,7 +88,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         response = self.client.get(reverse('wagtailadmin_pages:add_subpage', args=(self.root_page.id, )))
 
         # Check that the user received a 403 response
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
     def test_add_subpage_nonexistantparent(self):
         response = self.client.get(reverse('wagtailadmin_pages:add_subpage', args=(100000, )))
@@ -108,6 +108,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
     def test_create_simplepage(self):
         response = self.client.get(reverse('wagtailadmin_pages:add', args=('tests', 'simplepage', self.root_page.id)))
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response['Content-Type'], "text/html; charset=utf-8")
         self.assertContains(response, '<a href="#tab-content" class="active">Content</a>')
         self.assertContains(response, '<a href="#tab-promote" class="">Promote</a>')
         # test register_page_action_menu_item hook
@@ -115,7 +116,6 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         self.assertContains(response, 'testapp/js/siren.js')
         # test construct_page_action_menu hook
         self.assertContains(response, '<button type="submit" name="action-relax" value="Relax." class="button">Relax.</button>')
-
 
     def test_create_multipart(self):
         """
@@ -176,7 +176,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         response = self.client.get(reverse('wagtailadmin_pages:add', args=('tests', 'simplepage', self.root_page.id, )))
 
         # Check that the user received a 403 response
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
     def test_cannot_create_page_with_is_creatable_false(self):
         # tests.MTIBasePage has is_creatable=False, so attempting to add a new one
@@ -184,7 +184,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'mtibasepage', self.root_page.id))
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
     def test_cannot_create_page_when_can_create_at_returns_false(self):
         # issue #2892
@@ -213,7 +213,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         # A second singleton page should not be creatable
         self.assertFalse(SingletonPage.can_create_at(self.root_page))
         response = self.client.get(add_url)
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
     def test_cannot_create_singleton_page_with_max_count(self):
         # Check that creating a second SingletonPageViaMaxCount results in a permission
@@ -237,7 +237,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         # A second singleton page should not be creatable
         self.assertFalse(SingletonPageViaMaxCount.can_create_at(self.root_page))
         response = self.client.get(add_url)
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
     def test_cannot_create_page_with_wrong_parent_page_types(self):
         # tests.BusinessChild has limited parent_page_types, so attempting to add
@@ -245,7 +245,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'businesschild', self.root_page.id))
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
     def test_cannot_create_page_with_wrong_subpage_types(self):
         # Add a BusinessIndex to test business rules in
@@ -260,7 +260,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'simplepage', business_index.id))
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
     def test_create_simplepage_post(self):
         post_data = {
@@ -427,7 +427,7 @@ class TestPageCreation(TestCase, WagtailTestUtils):
 
     def test_create_simplepage_post_submit(self):
         # Create a moderator user for testing email
-        get_user_model().objects.create_superuser('moderator', 'moderator@email.com', 'password')
+        self.create_superuser('moderator', 'moderator@email.com', 'password')
 
         # Submit
         post_data = {
@@ -453,7 +453,6 @@ class TestPageCreation(TestCase, WagtailTestUtils):
 
         # The page should now be in moderation
         self.assertEqual(page.current_workflow_state.status, page.current_workflow_state.STATUS_IN_PROGRESS)
-
 
     def test_create_simplepage_post_existing_slug(self):
         # This tests the existing slug checking on page save
@@ -732,6 +731,20 @@ class TestPageCreation(TestCase, WagtailTestUtils):
         response = self.client.get(reverse('wagtailadmin_pages:add', args=('tests', 'simplepage', self.root_page.id)))
         self.assertNotContains(response, '<button type="submit" name="action-submit" value="Submit for moderation" class="button">Submit for moderation</button>')
 
+    def test_create_sets_locale_to_parent_locale(self):
+        # We need to make sure the page's locale it set to the parent in the create view so that any customisations
+        # for that language will take effect.
+        fr_locale = Locale.objects.create(language_code="fr")
+        fr_homepage = self.root_page.add_child(instance=Page(
+            title="Home",
+            slug="home-fr",
+            locale=fr_locale,
+        ))
+
+        response = self.client.get(reverse('wagtailadmin_pages:add', args=('tests', 'simplepage', fr_homepage.id)))
+
+        self.assertEqual(response.context['page'].locale, fr_locale)
+
 
 class TestPerRequestEditHandler(TestCase, WagtailTestUtils):
     fixtures = ['test.json']
@@ -749,8 +762,7 @@ class TestPerRequestEditHandler(TestCase, WagtailTestUtils):
         Test that per-request custom behaviour in edit handlers is honoured
         """
         # non-superusers should not see secret_data
-        logged_in = self.client.login(username='siteeditor', password='password')
-        self.assertTrue(logged_in)
+        self.login(username='siteeditor', password='password')
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'secretpage', self.root_page.id))
         )
@@ -759,8 +771,7 @@ class TestPerRequestEditHandler(TestCase, WagtailTestUtils):
         self.assertNotContains(response, '"secret_data"')
 
         # superusers should see secret_data
-        logged_in = self.client.login(username='superuser', password='password')
-        self.assertTrue(logged_in)
+        self.login(username='superuser', password='password')
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'secretpage', self.root_page.id))
         )
@@ -844,26 +855,26 @@ class TestSubpageBusinessRules(TestCase, WagtailTestUtils):
 
         # this also means that fetching add_subpage is blocked at the permission-check level
         response = self.client.get(reverse('wagtailadmin_pages:add_subpage', args=(self.business_child.id, )))
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
     def test_cannot_add_invalid_subpage_type(self):
         # cannot add StandardChild as a child of BusinessIndex, as StandardChild is not present in subpage_types
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'standardchild', self.business_index.id))
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
         # likewise for BusinessChild which has an empty subpage_types list
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'standardchild', self.business_child.id))
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
         # cannot add BusinessChild to StandardIndex, as BusinessChild restricts is parent page types
         response = self.client.get(
             reverse('wagtailadmin_pages:add', args=('tests', 'businesschild', self.standard_index.id))
         )
-        self.assertEqual(response.status_code, 403)
+        self.assertRedirects(response, '/admin/')
 
         # but we can add a BusinessChild to BusinessIndex
         response = self.client.get(
@@ -1013,3 +1024,91 @@ class TestInlinePanelNonFieldErrors(TestCase, WagtailTestUtils):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "The page could not be created due to validation errors")
         self.assertContains(response, 'You must provide a related page, related document or an external URL', count=1)
+
+
+@override_settings(WAGTAIL_I18N_ENABLED=True)
+class TestLocaleSelector(TestCase, WagtailTestUtils):
+    fixtures = ['test.json']
+
+    def setUp(self):
+        self.events_page = Page.objects.get(url_path='/home/events/')
+        self.fr_locale = Locale.objects.create(language_code='fr')
+        self.translated_events_page = self.events_page.copy_for_translation(self.fr_locale, copy_parents=True)
+        self.user = self.login()
+
+    def test_locale_selector(self):
+        response = self.client.get(
+            reverse('wagtailadmin_pages:add', args=['tests', 'eventpage', self.events_page.id])
+        )
+
+        self.assertContains(response, '<li class="header-meta--locale">')
+
+        add_translation_url = reverse('wagtailadmin_pages:add', args=['tests', 'eventpage', self.translated_events_page.id])
+        self.assertContains(response, f'<a href="{add_translation_url}" aria-label="French" class="u-link is-live">')
+
+    @override_settings(WAGTAIL_I18N_ENABLED=False)
+    def test_locale_selector_not_present_when_i18n_disabled(self):
+        response = self.client.get(
+            reverse('wagtailadmin_pages:add', args=['tests', 'eventpage', self.events_page.id])
+        )
+
+        self.assertNotContains(response, '<li class="header-meta--locale">')
+
+        add_translation_url = reverse('wagtailadmin_pages:add', args=['tests', 'eventpage', self.translated_events_page.id])
+        self.assertNotContains(response, f'<a href="{add_translation_url}" aria-label="French" class="u-link is-live">')
+
+    def test_locale_dropdown_not_present_without_permission_to_add(self):
+        # Remove user's permissions to add in the French tree
+        group = Group.objects.get(name='Moderators')
+        GroupPagePermission.objects.create(
+            group=group,
+            page=self.events_page,
+            permission_type='add',
+        )
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.groups.add(group)
+        self.user.save()
+
+        # Locale indicator should exist, but the "French" option should be hidden
+        response = self.client.get(
+            reverse('wagtailadmin_pages:add', args=['tests', 'eventpage', self.events_page.id])
+        )
+
+        self.assertContains(response, '<li class="header-meta--locale">')
+
+        add_translation_url = reverse('wagtailadmin_pages:add', args=['tests', 'eventpage', self.translated_events_page.id])
+        self.assertNotContains(response, f'<a href="{add_translation_url}" aria-label="French" class="u-link is-live">')
+
+
+@override_settings(WAGTAIL_I18N_ENABLED=True)
+class TestLocaleSelectorOnRootPage(TestCase, WagtailTestUtils):
+    fixtures = ['test.json']
+
+    def setUp(self):
+        self.root_page = Page.objects.get(id=1)
+        self.fr_locale = Locale.objects.create(language_code='fr')
+        self.user = self.login()
+
+    def test_locale_selector(self):
+        response = self.client.get(
+            reverse('wagtailadmin_pages:add', args=['demosite', 'homepage', self.root_page.id])
+        )
+
+        self.assertContains(response, '<li class="header-meta--locale">')
+
+        add_translation_url = reverse('wagtailadmin_pages:add', args=['demosite', 'homepage', self.root_page.id]) + '?locale=fr'
+        self.assertContains(response, f'<a href="{add_translation_url}" aria-label="French" class="u-link is-live">')
+
+    @override_settings(WAGTAIL_I18N_ENABLED=False)
+    def test_locale_selector_not_present_when_i18n_disabled(self):
+        response = self.client.get(
+            reverse('wagtailadmin_pages:add', args=['demosite', 'homepage', self.root_page.id])
+        )
+
+        self.assertNotContains(response, '<li class="header-meta--locale">')
+
+        add_translation_url = reverse('wagtailadmin_pages:add', args=['demosite', 'homepage', self.root_page.id]) + '?locale=fr'
+        self.assertNotContains(response, f'<a href="{add_translation_url}" aria-label="French" class="u-link is-live">')

@@ -17,6 +17,7 @@ from wagtail.images.forms import ImageInsertionForm, get_image_form
 from wagtail.images.permissions import permission_policy
 from wagtail.search import index as search_index
 
+
 permission_checker = PermissionPolicyChecker(permission_policy)
 
 CHOOSER_PAGE_SIZE = getattr(settings, 'WAGTAILIMAGES_CHOOSER_PAGE_SIZE', 12)
@@ -57,8 +58,6 @@ def get_chooser_context(request):
     collections = Collection.objects.all()
     if len(collections) < 2:
         collections = None
-    else:
-        collections = Collection.order_for_display(collections)
 
     return {
         'searchform': SearchForm(),

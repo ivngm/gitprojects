@@ -8,6 +8,7 @@ from wagtail.core import hooks
 from wagtail.users.forms import GroupForm, GroupPagePermissionFormSet
 from wagtail.users.views.users import index
 
+
 _permission_panel_classes = None
 
 
@@ -156,7 +157,6 @@ class GroupViewSet(ModelViewSet):
     add_view_class = CreateView
     edit_view_class = EditView
     delete_view_class = DeleteView
-
 
     @property
     def users_view(self):

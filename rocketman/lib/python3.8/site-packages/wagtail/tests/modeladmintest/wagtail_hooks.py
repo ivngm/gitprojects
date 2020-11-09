@@ -2,11 +2,12 @@ from wagtail.admin.edit_handlers import FieldPanel, ObjectList, TabbedInterface
 from wagtail.contrib.modeladmin.helpers import WagtailBackendSearchHandler
 from wagtail.contrib.modeladmin.options import (
     ModelAdmin, ModelAdminGroup, ThumbnailMixin, modeladmin_register)
-from wagtail.contrib.modeladmin.views import CreateView, IndexView
+from wagtail.contrib.modeladmin.views import CreateView, EditView, IndexView
 from wagtail.tests.testapp.models import BusinessChild, EventPage, SingleEventPage
 
 from .forms import PublisherModelAdminForm
-from .models import Author, Book, Contributor, Friend, Person, Publisher, Token, VenuePage, Visitor
+from .models import (
+    Author, Book, Contributor, Friend, Person, Publisher, RelatedLink, Token, VenuePage, Visitor)
 
 
 class AuthorModelAdmin(ModelAdmin):
@@ -71,6 +72,7 @@ class BookModelAdmin(ThumbnailMixin, ModelAdmin):
     inspect_view_fields_exclude = ('title', )
     thumb_image_field_name = 'cover_image'
     search_handler_class = WagtailBackendSearchHandler
+    prepopulated_fields = {'title': ('author',)}
 
     def get_extra_attrs_for_row(self, obj, context):
         return {
@@ -92,9 +94,15 @@ class PublisherCreateView(CreateView):
         return PublisherModelAdminForm
 
 
+class PublisherEditView(EditView):
+    def get_form_class(self):
+        return PublisherModelAdminForm
+
+
 class PublisherModelAdmin(ModelAdmin):
     model = Publisher
     create_view_class = PublisherCreateView
+    edit_view_class = PublisherEditView
 
 
 class EventPageAdmin(ModelAdmin):
@@ -158,6 +166,11 @@ class BusinessChildAdmin(ModelAdmin):
     menu_label = "BusinessSprog"
 
 
+class RelatedLinkAdmin(ModelAdmin):
+    model = RelatedLink
+    menu_label = "Related Links"
+
+
 modeladmin_register(AuthorModelAdmin)
 modeladmin_register(BookModelAdmin)
 modeladmin_register(TokenModelAdmin)
@@ -168,3 +181,4 @@ modeladmin_register(PersonAdmin)
 modeladmin_register(FriendAdmin)
 modeladmin_register(VisitorAdmin)
 modeladmin_register(ContributorAdmin)
+modeladmin_register(RelatedLinkAdmin)

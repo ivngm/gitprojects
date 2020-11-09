@@ -1,8 +1,12 @@
 import datetime
 import json
+import unittest
+
 from unittest.mock import Mock
 
 import pytz
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.contenttypes.models import ContentType
@@ -11,16 +15,20 @@ from django.http import Http404, HttpRequest
 from django.test import Client, TestCase
 from django.test.client import RequestFactory
 from django.test.utils import override_settings
+from django.utils import timezone, translation
 from freezegun import freeze_time
 
-from wagtail.core.models import Page, PageManager, Site, get_page_models
+from wagtail.core.models import (
+    Locale, Page, PageLogEntry, PageManager, ParentNotTranslatedError, Site, get_page_models,
+    get_translatable_models)
+from wagtail.core.signals import page_published
 from wagtail.tests.testapp.models import (
     AbstractPage, Advert, AlwaysShowInMenusPage, BlogCategory, BlogCategoryBlogPage, BusinessChild,
     BusinessIndex, BusinessNowherePage, BusinessSubIndex, CustomManager, CustomManagerPage,
-    CustomPageQuerySet, EventCategory, EventIndex, EventPage, GenericSnippetPage, ManyToManyBlogPage,
-    MTIBasePage, MTIChildPage, MyCustomPage, OneToOnePage, PageWithExcludedCopyField, SimpleChildPage,
-    SimplePage, SimpleParentPage, SingleEventPage, SingletonPage, StandardIndex, StreamPage,
-    TaggedPage)
+    CustomPageQuerySet, EventCategory, EventIndex, EventPage, EventPageSpeaker, GenericSnippetPage,
+    ManyToManyBlogPage, MTIBasePage, MTIChildPage, MyCustomPage, OneToOnePage,
+    PageWithExcludedCopyField, SimpleChildPage, SimplePage, SimpleParentPage, SingleEventPage,
+    SingletonPage, StandardIndex, StreamPage, TaggedPage)
 from wagtail.tests.utils import WagtailTestUtils
 
 
@@ -431,6 +439,182 @@ class TestRouting(TestCase):
             self.assertEqual(christmas_page.get_url(request=request), '/events/christmas/')
 
 
+@override_settings(ROOT_URLCONF='wagtail.tests.urls_multilang',
+                   LANGUAGE_CODE='en',
+                   WAGTAIL_I18N_ENABLED=True,
+                   LANGUAGES=[('en', "English"), ('en-us', "English (United States)"), ('fr', "French")],
+                   WAGTAIL_CONTENT_LANGUAGES=[('en', "English"), ('fr', "French")])
+class TestRoutingWithI18N(TestRouting):
+    # This inherits from TestRouting so contains all the same test cases
+    # Only the test cases that behave differently under internationalisation are overridden here
+
+    def test_urls(self, expected_language_code='en'):
+        default_site = Site.objects.get(is_default_site=True)
+        homepage = Page.objects.get(url_path='/home/')
+        christmas_page = Page.objects.get(url_path='/home/events/christmas/')
+
+        # Basic installation only has one site configured, so page.url will return local URLs
+        # self.assertEqual(
+        #     homepage.get_url_parts(),
+        #     (default_site.id, 'http://localhost', f'/{expected_language_code}/')
+        # )
+        self.assertEqual(homepage.full_url, f'http://localhost/{expected_language_code}/')
+        self.assertEqual(homepage.url, f'/{expected_language_code}/')
+        self.assertEqual(homepage.relative_url(default_site), f'/{expected_language_code}/')
+        self.assertEqual(homepage.get_site(), default_site)
+
+        self.assertEqual(
+            christmas_page.get_url_parts(),
+            (default_site.id, 'http://localhost', f'/{expected_language_code}/events/christmas/')
+        )
+        self.assertEqual(christmas_page.full_url, f'http://localhost/{expected_language_code}/events/christmas/')
+        self.assertEqual(christmas_page.url, f'/{expected_language_code}/events/christmas/')
+        self.assertEqual(christmas_page.relative_url(default_site), f'/{expected_language_code}/events/christmas/')
+        self.assertEqual(christmas_page.get_site(), default_site)
+
+    def test_urls_with_translation_activated(self):
+        # This should have no effect as the URL is determined from the page's locale
+        # and not the active locale
+        with translation.override("fr"):
+            self.test_urls()
+
+    def test_urls_with_region_specific_translation_activated(self):
+        # One exception to the above rule is when the active locale
+        # is a more specific one to what the page was authored in
+        # and the active locale is not in WAGTAIL_CONTENT_LANGUAGES
+
+        # This is because, in this situation, the same page will be
+        # served under both /en/ and /en-us/ prefixes
+        with translation.override("en-us"):
+            self.test_urls(expected_language_code='en-us')
+
+    @override_settings(WAGTAIL_CONTENT_LANGUAGES=[
+        ('en', "English"),
+        ('en-us', "English (United States)"),
+        ('fr', "French")
+    ])
+    def test_urls_with_region_specific_translation_activated_thats_in_wagtail_content_languages(self):
+        # But, if en-us is also a content language, then this rule doesn't apply
+        # because that page won't be served under /en-us/.
+        with translation.override("en-us"):
+            self.test_urls()
+
+    def test_urls_with_different_language_tree(self):
+        default_site = Site.objects.get(is_default_site=True)
+        homepage = Page.objects.get(url_path='/home/')
+        christmas_page = Page.objects.get(url_path='/home/events/christmas/')
+
+        fr_locale = Locale.objects.create(language_code="fr")
+        fr_homepage = homepage.copy_for_translation(fr_locale)
+        fr_christmas_page = christmas_page.copy_for_translation(fr_locale, copy_parents=True)
+        fr_christmas_page.slug = 'noel'
+        fr_christmas_page.save(update_fields=['slug'])
+
+        # Basic installation only has one site configured, so page.url will return local URLs
+        self.assertEqual(
+            fr_homepage.get_url_parts(),
+            (default_site.id, 'http://localhost', '/fr/')
+        )
+        self.assertEqual(fr_homepage.full_url, 'http://localhost/fr/')
+        self.assertEqual(fr_homepage.url, '/fr/')
+        self.assertEqual(fr_homepage.relative_url(default_site), '/fr/')
+        self.assertEqual(fr_homepage.get_site(), default_site)
+
+        self.assertEqual(
+            fr_christmas_page.get_url_parts(),
+            (default_site.id, 'http://localhost', '/fr/events/noel/')
+        )
+        self.assertEqual(fr_christmas_page.full_url, 'http://localhost/fr/events/noel/')
+        self.assertEqual(fr_christmas_page.url, '/fr/events/noel/')
+        self.assertEqual(fr_christmas_page.relative_url(default_site), '/fr/events/noel/')
+        self.assertEqual(fr_christmas_page.get_site(), default_site)
+
+    @override_settings(ALLOWED_HOSTS=['localhost', 'testserver', 'events.example.com', 'second-events.example.com'])
+    def test_urls_with_multiple_sites(self):
+        events_page = Page.objects.get(url_path='/home/events/')
+        events_site = Site.objects.create(hostname='events.example.com', root_page=events_page)
+
+        # An underscore is not valid according to RFC 1034/1035
+        # and will raise a DisallowedHost Exception
+        second_events_site = Site.objects.create(
+            hostname='second-events.example.com', root_page=events_page)
+
+        default_site = Site.objects.get(is_default_site=True)
+        homepage = Page.objects.get(url_path='/home/')
+        christmas_page = Page.objects.get(url_path='/home/events/christmas/')
+
+        # with multiple sites, page.url will return full URLs to ensure that
+        # they work across sites
+        self.assertEqual(
+            homepage.get_url_parts(),
+            (default_site.id, 'http://localhost', '/en/')
+        )
+        self.assertEqual(homepage.full_url, 'http://localhost/en/')
+        self.assertEqual(homepage.url, 'http://localhost/en/')
+        self.assertEqual(homepage.relative_url(default_site), '/en/')
+        self.assertEqual(homepage.relative_url(events_site), 'http://localhost/en/')
+        self.assertEqual(homepage.get_site(), default_site)
+
+        self.assertEqual(
+            christmas_page.get_url_parts(),
+            (events_site.id, 'http://events.example.com', '/en/christmas/')
+        )
+        self.assertEqual(christmas_page.full_url, 'http://events.example.com/en/christmas/')
+        self.assertEqual(christmas_page.url, 'http://events.example.com/en/christmas/')
+        self.assertEqual(christmas_page.relative_url(default_site), 'http://events.example.com/en/christmas/')
+        self.assertEqual(christmas_page.relative_url(events_site), '/en/christmas/')
+        self.assertEqual(christmas_page.get_site(), events_site)
+
+        request = HttpRequest()
+        request.META['HTTP_HOST'] = events_site.hostname
+        request.META['SERVER_PORT'] = events_site.port
+
+        self.assertEqual(
+            christmas_page.get_url_parts(request=request),
+            (events_site.id, 'http://events.example.com', '/en/christmas/')
+        )
+
+        request2 = HttpRequest()
+        request2.META['HTTP_HOST'] = second_events_site.hostname
+        request2.META['SERVER_PORT'] = second_events_site.port
+        self.assertEqual(
+            christmas_page.get_url_parts(request=request2),
+            (second_events_site.id, 'http://second-events.example.com', '/en/christmas/')
+        )
+
+    # Override CACHES so we don't generate any cache-related SQL queries (tests use DatabaseCache
+    # otherwise) and so cache.get will always return None.
+    @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.dummy.DummyCache'}})
+    @override_settings(ALLOWED_HOSTS=['dummy'])
+    def test_request_scope_site_root_paths_cache(self):
+        homepage = Page.objects.get(url_path='/home/')
+        christmas_page = EventPage.objects.get(url_path='/home/events/christmas/')
+
+        # without a request, get_url should only issue 2 SQL queries
+        with self.assertNumQueries(2):
+            self.assertEqual(homepage.get_url(), '/en/')
+        # subsequent calls with the same page should generate no SQL queries
+        with self.assertNumQueries(0):
+            self.assertEqual(homepage.get_url(), '/en/')
+        # subsequent calls with a different page will still generate 2 SQL queries
+        with self.assertNumQueries(2):
+            self.assertEqual(christmas_page.get_url(), '/en/events/christmas/')
+
+        # with a request, the first call to get_url should issue 1 SQL query
+        request = HttpRequest()
+        request.META['HTTP_HOST'] = "dummy"
+        request.META['SERVER_PORT'] = "8888"
+        # first call with "balnk" request issues a extra query for the Site.find_for_request() call
+        with self.assertNumQueries(3):
+            self.assertEqual(homepage.get_url(request=request), '/en/')
+        # subsequent calls should issue no SQL queries
+        with self.assertNumQueries(0):
+            self.assertEqual(homepage.get_url(request=request), '/en/')
+        # even if called on a different page
+        with self.assertNumQueries(0):
+            self.assertEqual(christmas_page.get_url(request=request), '/en/events/christmas/')
+
+
 class TestServeView(TestCase):
     fixtures = ['test.json']
 
@@ -639,9 +823,24 @@ class TestLiveRevision(TestCase):
 
         page.refresh_from_db()
         self.assertEqual(page.live_revision, revision)
-        self.assertEqual(page.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
-        # first_published_at should not change
-        self.assertEqual(page.first_published_at, datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+        if settings.USE_TZ:
+            self.assertEqual(
+                page.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc)
+            )
+            # first_published_at should not change
+            self.assertEqual(
+                page.first_published_at, datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc)
+            )
+        else:
+            self.assertEqual(
+                # interpret the "2017-01-01 12:00:00" in freeze_time above as a naive local date
+                page.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0)
+            )
+            # first_published_at should not change
+            self.assertEqual(
+                # convert the "2014-01-01T12:00:00.000Z" in the test fixture to a naive local time
+                page.first_published_at, timezone.make_naive(datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+            )
 
     @freeze_time("2017-01-01 12:00:00")
     def test_unpublish_method_will_clean_live_revision(self):
@@ -657,8 +856,22 @@ class TestLiveRevision(TestCase):
         page.refresh_from_db()
         self.assertIsNone(page.live_revision)
         # first_published_at / last_published_at should remain unchanged on unpublish
-        self.assertEqual(page.first_published_at, datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
-        self.assertEqual(page.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+        if settings.USE_TZ:
+            self.assertEqual(
+                page.first_published_at, datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc)
+            )
+            self.assertEqual(
+                page.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc)
+            )
+        else:
+            self.assertEqual(
+                # convert the "2014-01-01T12:00:00.000Z" in the test fixture to a naive local time
+                page.first_published_at, timezone.make_naive(datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+            )
+            self.assertEqual(
+                # interpret the "2017-01-01 12:00:00" in freeze_time above as a naive local date
+                page.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0)
+            )
 
     @freeze_time("2017-01-01 12:00:00")
     def test_copy_method_with_keep_live_will_update_live_revision(self):
@@ -673,8 +886,12 @@ class TestLiveRevision(TestCase):
         # first_published_at / last_published_at should reflect the current time,
         # not the source page's publish dates, since the copied page is being published
         # for the first time
-        self.assertEqual(new_about_us.first_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
-        self.assertEqual(new_about_us.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+        if settings.USE_TZ:
+            self.assertEqual(new_about_us.first_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+            self.assertEqual(new_about_us.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+        else:
+            self.assertEqual(new_about_us.first_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0))
+            self.assertEqual(new_about_us.last_published_at, datetime.datetime(2017, 1, 1, 12, 0, 0))
 
     def test_copy_method_without_keep_live_will_not_update_live_revision(self):
         about_us = SimplePage.objects.get(url_path='/home/about-us/')
@@ -693,7 +910,10 @@ class TestLiveRevision(TestCase):
     @freeze_time("2017-01-01 12:00:00")
     def test_publish_with_future_go_live_does_not_set_live_revision(self):
         about_us = SimplePage.objects.get(url_path='/home/about-us/')
-        about_us.go_live_at = datetime.datetime(2018, 1, 1, 12, 0, 0, tzinfo=pytz.utc)
+        if settings.USE_TZ:
+            about_us.go_live_at = datetime.datetime(2018, 1, 1, 12, 0, 0, tzinfo=pytz.utc)
+        else:
+            about_us.go_live_at = datetime.datetime(2018, 1, 1, 12, 0, 0)
         revision = about_us.save_revision()
         revision.publish()
         about_us.refresh_from_db()
@@ -702,8 +922,20 @@ class TestLiveRevision(TestCase):
         self.assertIsNone(about_us.live_revision)
 
         # first_published_at / last_published_at should remain unchanged
-        self.assertEqual(about_us.first_published_at, datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
-        self.assertEqual(about_us.last_published_at, datetime.datetime(2014, 2, 1, 12, 0, 0, tzinfo=pytz.utc))
+        if settings.USE_TZ:
+            self.assertEqual(
+                about_us.first_published_at, datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc)
+            )
+            self.assertEqual(
+                about_us.last_published_at, datetime.datetime(2014, 2, 1, 12, 0, 0, tzinfo=pytz.utc)
+            )
+        else:
+            self.assertEqual(
+                about_us.first_published_at, timezone.make_naive(datetime.datetime(2014, 1, 1, 12, 0, 0, tzinfo=pytz.utc))
+            )
+            self.assertEqual(
+                about_us.last_published_at, timezone.make_naive(datetime.datetime(2014, 2, 1, 12, 0, 0, tzinfo=pytz.utc))
+            )
 
 
 class TestCopyPage(TestCase):
@@ -925,7 +1157,14 @@ class TestCopyPage(TestCase):
 
     def test_copy_page_copies_revisions_and_doesnt_schedule(self):
         christmas_event = EventPage.objects.get(url_path='/home/events/christmas/')
-        christmas_event.save_revision(approved_go_live_at=datetime.datetime(2014, 9, 16, 9, 12, 00, tzinfo=pytz.utc))
+        if settings.USE_TZ:
+            christmas_event.save_revision(
+                approved_go_live_at=datetime.datetime(2014, 9, 16, 9, 12, 00, tzinfo=pytz.utc)
+            )
+        else:
+            christmas_event.save_revision(
+                approved_go_live_at=datetime.datetime(2014, 9, 16, 9, 12, 00)
+            )
 
         # Copy it
         new_christmas_event = christmas_event.copy(
@@ -933,10 +1172,16 @@ class TestCopyPage(TestCase):
         )
 
         # Check that the old revision is still scheduled
-        self.assertEqual(
-            christmas_event.revisions.order_by('created_at').first().approved_go_live_at,
-            datetime.datetime(2014, 9, 16, 9, 12, 00, tzinfo=pytz.utc)
-        )
+        if settings.USE_TZ:
+            self.assertEqual(
+                christmas_event.revisions.order_by('created_at').first().approved_go_live_at,
+                datetime.datetime(2014, 9, 16, 9, 12, 00, tzinfo=pytz.utc)
+            )
+        else:
+            self.assertEqual(
+                christmas_event.revisions.order_by('created_at').first().approved_go_live_at,
+                datetime.datetime(2014, 9, 16, 9, 12, 00)
+            )
 
         # Check that the new revision is not scheduled
         self.assertEqual(new_christmas_event.revisions.order_by('created_at').first().approved_go_live_at, None)
@@ -1069,7 +1314,7 @@ class TestCopyPage(TestCase):
         self.assertEqual(str(exception.exception), "You cannot copy a tree branch recursively into itself")
 
     def test_copy_page_updates_user(self):
-        event_moderator = get_user_model().objects.get(username='eventmoderator')
+        event_moderator = get_user_model().objects.get(email='eventmoderator@example.com')
         christmas_event = EventPage.objects.get(url_path='/home/events/christmas/')
         christmas_event.save_revision()
 
@@ -1192,14 +1437,13 @@ class TestCopyPage(TestCase):
         self.assertNotEqual(page.id, new_page.id)
 
     def test_copy_page_with_additional_excluded_fields(self):
-
         homepage = Page.objects.get(url_path='/home/')
-        page = PageWithExcludedCopyField(
+        page = homepage.add_child(instance=PageWithExcludedCopyField(
             title='Discovery',
             slug='disco',
             content='NCC-1031',
-            special_field='Context is for Kings')
-        new_page = page.copy(to=homepage)
+            special_field='Context is for Kings'))
+        new_page = page.copy(to=homepage, update_attrs={'slug': 'disco-2'})
 
         self.assertEqual(page.title, new_page.title)
         self.assertNotEqual(page.id, new_page.id)
@@ -1267,6 +1511,586 @@ class TestCopyPage(TestCase):
             # reset excluded fields for future tests
             EventPage.exclude_fields_in_copy = []
 
+    def test_copy_unsaved_page(self):
+        """Test that unsaved page will not be copied."""
+        new_page = SimplePage(slug='testpurp', title='testpurpose')
+        with self.assertRaises(RuntimeError):
+            new_page.copy()
+
+    def test_copy_published_emits_signal(self):
+        """Test that copying of a published page emits a page_published signal."""
+        christmas_page = EventPage.objects.get(url_path='/home/events/christmas/')
+
+        signal_fired = False
+        signal_page = None
+
+        def page_published_handler(sender, instance, **kwargs):
+            nonlocal signal_fired
+            nonlocal signal_page
+            signal_fired = True
+            signal_page = instance
+
+        page_published.connect(page_published_handler)
+        copy_page = christmas_page.copy(
+            update_attrs={'title': "New christmas", 'slug': 'new-christmas'},
+        )
+
+        self.assertTrue(signal_fired)
+        self.assertEqual(signal_page, copy_page)
+
+    def test_copy_unpublished_not_emits_signal(self):
+        """Test that copying of an unpublished page not emits a page_published signal."""
+        homepage = Page.objects.get(url_path='/home/')
+        homepage.live = False
+        homepage.save()
+
+        signal_fired = False
+
+        def page_published_handler(sender, instance, **kwargs):
+            nonlocal signal_fired
+            signal_fired = True
+        page_published.connect(page_published_handler)
+
+        homepage.copy(update_attrs={'slug': 'new_slug'})
+        self.assertFalse(signal_fired)
+
+    def test_copy_keep_live_false_not_emits_signal(self):
+        """Test that copying of a live page with keep_live=False not emits a page_published signal."""
+        homepage = Page.objects.get(url_path='/home/')
+        signal_fired = False
+
+        def page_published_handler(sender, instance, **kwargs):
+            nonlocal signal_fired
+            signal_fired = True
+        page_published.connect(page_published_handler)
+
+        homepage.copy(
+            keep_live=False,
+            update_attrs={'slug': 'new_slug'}
+        )
+        self.assertFalse(signal_fired)
+
+
+class TestCreateAlias(TestCase):
+    fixtures = ['test.json']
+
+    def test_create_alias(self):
+        about_us = SimplePage.objects.get(url_path='/home/about-us/')
+
+        # Set a different draft title, aliases are not supposed to
+        # have a different draft_title because they don't have revisions.
+        # This should be corrected when copying
+        about_us.draft_title = 'Draft title'
+        about_us.save(update_fields=['draft_title'])
+
+        # Copy it
+        new_about_us = about_us.create_alias(update_slug='new-about-us')
+
+        # Check that new_about_us is correct
+        self.assertIsInstance(new_about_us, SimplePage)
+        self.assertEqual(new_about_us.slug, 'new-about-us')
+        # Draft title should be changed to match the live title
+        self.assertEqual(new_about_us.draft_title, 'About us')
+
+        # Check that new_about_us is a different page
+        self.assertNotEqual(about_us.id, new_about_us.id)
+
+        # Check that the url path was updated
+        self.assertEqual(new_about_us.url_path, '/home/new-about-us/')
+
+        # Check that the alias_of field was filled in
+        self.assertEqual(new_about_us.alias_of, about_us)
+
+    def test_create_alias_copies_child_objects(self):
+        christmas_event = EventPage.objects.get(url_path='/home/events/christmas/')
+
+        # Copy it
+        new_christmas_event = christmas_event.create_alias(update_slug='new-christmas-event')
+
+        # Check that the speakers were copied
+        self.assertEqual(new_christmas_event.speakers.count(), 1, "Child objects weren't copied")
+
+        # Check that the speakers weren't removed from old page
+        self.assertEqual(christmas_event.speakers.count(), 1, "Child objects were removed from the original page")
+
+        # Check that advert placements were also copied (there's a gotcha here, since the advert_placements
+        # relation is defined on Page, not EventPage)
+        self.assertEqual(
+            new_christmas_event.advert_placements.count(), 1, "Child objects defined on the superclass weren't copied"
+        )
+        self.assertEqual(
+            christmas_event.advert_placements.count(),
+            1,
+            "Child objects defined on the superclass were removed from the original page"
+        )
+
+    def test_create_alias_copies_parental_relations(self):
+        """Test that a page will be copied with parental many to many relations intact."""
+        christmas_event = EventPage.objects.get(url_path='/home/events/christmas/')
+        summer_category = EventCategory.objects.create(name='Summer')
+        holiday_category = EventCategory.objects.create(name='Holidays')
+
+        # add parental many to many relations
+        christmas_event.categories = (summer_category, holiday_category)
+        christmas_event.save()
+
+        # Copy it
+        new_christmas_event = christmas_event.create_alias(update_slug='new-christmas-event')
+
+        # check that original eventt is untouched
+        self.assertEqual(
+            christmas_event.categories.count(),
+            2,
+            "Child objects (parental many to many) defined on the superclass were removed from the original page"
+        )
+
+        # check that parental many to many are copied
+        self.assertEqual(
+            new_christmas_event.categories.count(),
+            2,
+            "Child objects (parental many to many) weren't copied"
+        )
+
+        # check that the original and copy are related to the same categories
+        self.assertEqual(
+            new_christmas_event.categories.all().in_bulk(),
+            christmas_event.categories.all().in_bulk()
+        )
+
+    def test_create_alias_doesnt_copy_revisions(self):
+        christmas_event = EventPage.objects.get(url_path='/home/events/christmas/')
+        christmas_event.save_revision()
+
+        # Copy it
+        new_christmas_event = christmas_event.create_alias(update_slug='new-christmas-event')
+
+        # Check that no revisions were created
+        self.assertEqual(new_christmas_event.revisions.count(), 0)
+
+    def test_create_alias_copies_child_objects_with_nonspecific_class(self):
+        # Get chrismas page as Page instead of EventPage
+        christmas_event = Page.objects.get(url_path='/home/events/christmas/')
+
+        # Copy it
+        new_christmas_event = christmas_event.create_alias(update_slug='new-christmas-event')
+
+        # Check that the type of the new page is correct
+        self.assertIsInstance(new_christmas_event, EventPage)
+
+        # Check that the speakers were copied
+        self.assertEqual(new_christmas_event.speakers.count(), 1, "Child objects weren't copied")
+
+    def test_create_alias_copies_recursively(self):
+        events_index = EventIndex.objects.get(url_path='/home/events/')
+
+        # Copy it
+        new_events_index = events_index.create_alias(recursive=True, update_slug='new-events-index')
+
+        # Get christmas event
+        old_christmas_event = events_index.get_children().filter(slug='christmas').first()
+        new_christmas_event = new_events_index.get_children().filter(slug='christmas').first()
+
+        # Check that the event exists in both places
+        self.assertNotEqual(new_christmas_event, None, "Child pages weren't copied")
+        self.assertNotEqual(old_christmas_event, None, "Child pages were removed from original page")
+
+        # Check that the url path was updated
+        self.assertEqual(new_christmas_event.url_path, '/home/new-events-index/christmas/')
+
+        # Check that the children were also created as aliases
+        self.assertEqual(new_christmas_event.alias_of, old_christmas_event)
+
+    def test_create_alias_copies_recursively_with_child_objects(self):
+        events_index = EventIndex.objects.get(url_path='/home/events/')
+
+        # Copy it
+        new_events_index = events_index.create_alias(recursive=True, update_slug='new-events-index')
+
+        # Get christmas event
+        old_christmas_event = events_index.get_children().filter(slug='christmas').first()
+        new_christmas_event = new_events_index.get_children().filter(slug='christmas').first()
+
+        # Check that the speakers were copied
+        self.assertEqual(new_christmas_event.specific.speakers.count(), 1, "Child objects weren't copied")
+
+        # Check that the speakers weren't removed from old page
+        self.assertEqual(
+            old_christmas_event.specific.speakers.count(), 1, "Child objects were removed from the original page"
+        )
+
+    def test_create_alias_doesnt_copy_recursively_to_the_same_tree(self):
+        events_index = EventIndex.objects.get(url_path='/home/events/')
+        old_christmas_event = events_index.get_children().filter(slug='christmas').first().specific
+        old_christmas_event.save_revision()
+
+        with self.assertRaises(Exception) as exception:
+            events_index.create_alias(recursive=True, parent=events_index)
+
+        self.assertEqual(str(exception.exception), "You cannot copy a tree branch recursively into itself")
+
+    def test_create_alias_updates_user(self):
+        event_moderator = get_user_model().objects.get(email='eventmoderator@example.com')
+        christmas_event = EventPage.objects.get(url_path='/home/events/christmas/')
+        christmas_event.save_revision()
+
+        # Copy it
+        new_christmas_event = christmas_event.create_alias(update_slug='new-christmas-event', user=event_moderator)
+
+        # Check that the owner has been updated
+        self.assertEqual(new_christmas_event.owner, event_moderator)
+
+    def test_create_alias_multi_table_inheritance(self):
+        saint_patrick_event = SingleEventPage.objects.get(url_path='/home/events/saint-patrick/')
+
+        # Copy it
+        new_saint_patrick_event = saint_patrick_event.create_alias(update_slug='new-saint-patrick')
+
+        # Check that new_saint_patrick_event is correct
+        self.assertIsInstance(new_saint_patrick_event, SingleEventPage)
+        self.assertEqual(new_saint_patrick_event.excerpt, saint_patrick_event.excerpt)
+
+        # Check that new_saint_patrick_event is a different page, including parents from both EventPage and Page
+        self.assertNotEqual(saint_patrick_event.id, new_saint_patrick_event.id)
+        self.assertNotEqual(saint_patrick_event.eventpage_ptr.id, new_saint_patrick_event.eventpage_ptr.id)
+        self.assertNotEqual(
+            saint_patrick_event.eventpage_ptr.page_ptr.id,
+            new_saint_patrick_event.eventpage_ptr.page_ptr.id
+        )
+
+        # Check that the url path was updated
+        self.assertEqual(new_saint_patrick_event.url_path, '/home/events/new-saint-patrick/')
+
+        # Check that both parent instance exists
+        self.assertIsInstance(EventPage.objects.get(id=new_saint_patrick_event.id), EventPage)
+        self.assertIsInstance(Page.objects.get(id=new_saint_patrick_event.id), Page)
+
+    def test_create_alias_copies_tags(self):
+        # create and publish a TaggedPage under Events
+        event_index = Page.objects.get(url_path='/home/events/')
+        tagged_page = TaggedPage(title='My tagged page', slug='my-tagged-page')
+        tagged_page.tags.add('wagtail', 'bird')
+        event_index.add_child(instance=tagged_page)
+        tagged_page.save_revision().publish()
+
+        old_tagged_item_ids = [item.id for item in tagged_page.tagged_items.all()]
+        # there should be two items here, with defined (truthy) IDs
+        self.assertEqual(len(old_tagged_item_ids), 2)
+        self.assertTrue(all(old_tagged_item_ids))
+
+        # copy to underneath homepage
+        homepage = Page.objects.get(url_path='/home/')
+        new_tagged_page = tagged_page.create_alias(parent=homepage)
+
+        self.assertNotEqual(tagged_page.id, new_tagged_page.id)
+
+        # new page should also have two tags
+        new_tagged_item_ids = [item.id for item in new_tagged_page.tagged_items.all()]
+        self.assertEqual(len(new_tagged_item_ids), 2)
+        self.assertTrue(all(new_tagged_item_ids))
+
+        # new tagged_item IDs should differ from old ones
+        self.assertTrue(all([
+            item_id not in old_tagged_item_ids
+            for item_id in new_tagged_item_ids
+        ]))
+
+    def test_create_alias_with_m2m_relations(self):
+        # create and publish a ManyToManyBlogPage under Events
+        event_index = Page.objects.get(url_path='/home/events/')
+        category = BlogCategory.objects.create(name='Birds')
+        advert = Advert.objects.create(url='http://www.heinz.com/', text="beanz meanz heinz")
+
+        blog_page = ManyToManyBlogPage(title='My blog page', slug='my-blog-page')
+        event_index.add_child(instance=blog_page)
+
+        blog_page.adverts.add(advert)
+        BlogCategoryBlogPage.objects.create(category=category, page=blog_page)
+        blog_page.save_revision().publish()
+
+        # copy to underneath homepage
+        homepage = Page.objects.get(url_path='/home/')
+        new_blog_page = blog_page.create_alias(parent=homepage)
+
+        # M2M relations are not formally supported, so for now we're only interested in
+        # the copy operation as a whole succeeding, rather than the child objects being copied
+        self.assertNotEqual(blog_page.id, new_blog_page.id)
+
+    def test_create_alias_with_generic_foreign_key(self):
+        # create and publish a GenericSnippetPage under Events
+        event_index = Page.objects.get(url_path='/home/events/')
+        advert = Advert.objects.create(url='http://www.heinz.com/', text="beanz meanz heinz")
+
+        page = GenericSnippetPage(title='My snippet page', slug='my-snippet-page')
+        page.snippet_content_object = advert
+        event_index.add_child(instance=page)
+
+        page.save_revision().publish()
+
+        # copy to underneath homepage
+        homepage = Page.objects.get(url_path='/home/')
+        new_page = page.create_alias(parent=homepage)
+
+        self.assertNotEqual(page.id, new_page.id)
+        self.assertEqual(new_page.snippet_content_object, advert)
+
+    def test_create_alias_with_o2o_relation(self):
+        event_index = Page.objects.get(url_path='/home/events/')
+
+        page = OneToOnePage(title='My page', slug='my-page')
+
+        event_index.add_child(instance=page)
+
+        homepage = Page.objects.get(url_path='/home/')
+        new_page = page.create_alias(parent=homepage)
+
+        self.assertNotEqual(page.id, new_page.id)
+
+    @unittest.expectedFailure
+    def test_create_alias_with_additional_excluded_fields(self):
+        homepage = Page.objects.get(url_path='/home/')
+        page = homepage.add_child(instance=PageWithExcludedCopyField(
+            title='Discovery',
+            slug='disco',
+            content='NCC-1031',
+            special_field='Context is for Kings'))
+        new_page = page.create_alias(parent=homepage, update_slug='disco-2')
+
+        self.assertEqual(page.title, new_page.title)
+        self.assertNotEqual(page.id, new_page.id)
+        self.assertNotEqual(page.path, new_page.path)
+        # special_field is in the list to be excluded
+        self.assertNotEqual(page.special_field, new_page.special_field)
+
+    @unittest.expectedFailure
+    def test_create_alias_with_excluded_parental_and_child_relations(self):
+        """Test that a page will be copied with parental and child relations removed if excluded."""
+
+        try:
+            # modify excluded fields for this test
+            EventPage.exclude_fields_in_copy = ['advert_placements', 'categories', 'signup_link']
+
+            # set up data
+            christmas_event = EventPage.objects.get(url_path='/home/events/christmas/')
+            summer_category = EventCategory.objects.create(name='Summer')
+            holiday_category = EventCategory.objects.create(name='Holidays')
+
+            # add URL (to test excluding a basic field)
+            christmas_event.signup_link = "https://christmas-is-awesome.com/rsvp"
+
+            # add parental many to many relations
+            christmas_event.categories = (summer_category, holiday_category)
+            christmas_event.save()
+
+            # Copy it
+            new_christmas_event = christmas_event.create_alias(update_slug='new-christmas-event')
+
+            # check that the signup_link was NOT copied
+            self.assertEqual(christmas_event.signup_link, "https://christmas-is-awesome.com/rsvp")
+            self.assertEqual(new_christmas_event.signup_link, '')
+
+            # check that original event is untouched
+            self.assertEqual(
+                christmas_event.categories.count(),
+                2,
+                "Child objects (parental many to many) defined on the superclass were removed from the original page"
+            )
+
+            # check that parental many to many are NOT copied
+            self.assertEqual(
+                new_christmas_event.categories.count(),
+                0,
+                "Child objects (parental many to many) were copied but should be excluded"
+            )
+
+            # check that child objects on original event were left untouched
+            self.assertEqual(
+                christmas_event.advert_placements.count(),
+                1,
+                "Child objects defined on the original superclass were edited when copied"
+            )
+
+            # check that child objects were NOT copied
+            self.assertEqual(
+                new_christmas_event.advert_placements.count(),
+                0,
+                "Child objects defined on the superclass were copied and should not be"
+            )
+
+        finally:
+            # reset excluded fields for future tests
+            EventPage.exclude_fields_in_copy = []
+
+
+class TestUpdateAliases(TestCase):
+    fixtures = ['test.json']
+
+    def test_update_aliases(self):
+        event_page = EventPage.objects.get(url_path='/home/events/christmas/')
+        alias = event_page.create_alias(update_slug='new-event-page')
+        alias_alias = alias.create_alias(update_slug='new-event-page-2')
+
+        # Update the title and add a speaker
+        event_page.title = "Updated title"
+        event_page.draft_title = "A different draft title"
+        event_page.speakers.add(EventPageSpeaker(
+            first_name="Ted",
+            last_name="Crilly",
+        ))
+        event_page.save()
+
+        # Nothing should've happened yet
+        alias.refresh_from_db()
+        alias_alias.refresh_from_db()
+        self.assertEqual(alias.title, "Christmas")
+        self.assertEqual(alias_alias.title, "Christmas")
+        self.assertEqual(alias.speakers.count(), 1)
+        self.assertEqual(alias_alias.speakers.count(), 1)
+
+        PageLogEntry.objects.all().delete()
+
+        event_page.update_aliases()
+
+        # Check that the aliases have been updated
+        alias.refresh_from_db()
+        alias_alias.refresh_from_db()
+        self.assertEqual(alias.title, "Updated title")
+        self.assertEqual(alias_alias.title, "Updated title")
+        self.assertEqual(alias.speakers.count(), 2)
+        self.assertEqual(alias_alias.speakers.count(), 2)
+
+        # Draft titles shouldn't update as alias pages do not have drafts
+        self.assertEqual(alias.draft_title, "Updated title")
+        self.assertEqual(alias_alias.draft_title, "Updated title")
+
+        # Check log entries were created
+        self.assertTrue(PageLogEntry.objects.filter(page=alias, action='wagtail.publish').exists())
+        self.assertTrue(PageLogEntry.objects.filter(page=alias_alias, action='wagtail.publish').exists())
+
+
+class TestCopyForTranslation(TestCase):
+    fixtures = ['test.json']
+
+    def setUp(self):
+        self.en_homepage = Page.objects.get(url_path='/home/').specific
+        self.en_eventindex = EventIndex.objects.get(url_path='/home/events/')
+        self.en_eventpage = EventPage.objects.get(url_path='/home/events/christmas/')
+        self.root_page = self.en_homepage.get_parent()
+        self.fr_locale = Locale.objects.create(language_code="fr")
+
+    def test_copy_homepage(self):
+        fr_homepage = self.en_homepage.copy_for_translation(self.fr_locale)
+
+        self.assertNotEqual(self.en_homepage.id, fr_homepage.id)
+        self.assertEqual(fr_homepage.locale, self.fr_locale)
+        self.assertEqual(fr_homepage.translation_key, self.en_homepage.translation_key)
+
+        # At the top level, the langauge code should be appended to the slug
+        self.assertEqual(fr_homepage.slug, "home-fr")
+
+        # Translation must be in draft
+        self.assertFalse(fr_homepage.live)
+        self.assertTrue(fr_homepage.has_unpublished_changes)
+
+    def test_copy_homepage_slug_exists(self):
+        # This test is the same as test_copy_homepage, but we will create another page with
+        # the slug "home-fr" before translating. copy_for_translation should pick a different slug
+        self.root_page.add_child(instance=SimplePage(title="Old french homepage", slug="home-fr", content="Test content"))
+
+        fr_homepage = self.en_homepage.copy_for_translation(self.fr_locale)
+        self.assertEqual(fr_homepage.slug, "home-fr-1")
+
+    def test_copy_childpage(self):
+        # Create translated homepage manually
+        fr_homepage = self.root_page.add_child(instance=Page(
+            title="french homepage",
+            slug="home-fr",
+            locale=self.fr_locale,
+            translation_key=self.en_homepage.translation_key
+        ))
+
+        fr_eventindex = self.en_eventindex.copy_for_translation(self.fr_locale)
+
+        self.assertNotEqual(self.en_eventindex.id, fr_eventindex.id)
+        self.assertEqual(fr_eventindex.locale, self.fr_locale)
+        self.assertEqual(fr_eventindex.translation_key, self.en_eventindex.translation_key)
+
+        # Check that the fr event index was created under the fr homepage
+        self.assertEqual(fr_eventindex.get_parent(), fr_homepage)
+
+        # The slug should be the same when copying to another tree
+        self.assertEqual(self.en_eventindex.slug, fr_eventindex.slug)
+
+    def test_copy_childpage_without_parent(self):
+        # This test is the same as test_copy_childpage but we won't create the parent page first
+
+        with self.assertRaises(ParentNotTranslatedError):
+            self.en_eventindex.copy_for_translation(self.fr_locale)
+
+    def test_copy_childpage_with_copy_parents(self):
+        # This time we will set copy_parents
+        fr_eventindex = self.en_eventindex.copy_for_translation(self.fr_locale, copy_parents=True)
+
+        self.assertNotEqual(self.en_eventindex.id, fr_eventindex.id)
+        self.assertEqual(fr_eventindex.locale, self.fr_locale)
+        self.assertEqual(fr_eventindex.translation_key, self.en_eventindex.translation_key)
+        self.assertEqual(self.en_eventindex.slug, fr_eventindex.slug)
+
+        # This should create the homepage as well
+        fr_homepage = fr_eventindex.get_parent()
+
+        self.assertNotEqual(self.en_homepage.id, fr_homepage.id)
+        self.assertEqual(fr_homepage.locale, self.fr_locale)
+        self.assertEqual(fr_homepage.translation_key, self.en_homepage.translation_key)
+        self.assertEqual(fr_homepage.slug, "home-fr")
+
+    def test_copy_page_with_translatable_child_objects(self):
+        # Create translated homepage and event index manually
+        fr_homepage = self.root_page.add_child(instance=Page(
+            title="french homepage",
+            slug="home-fr",
+            locale=self.fr_locale,
+            translation_key=self.en_homepage.translation_key
+        ))
+
+        fr_homepage.add_child(instance=EventIndex(
+            title="Events",
+            slug="events",
+            locale=self.fr_locale,
+            translation_key=self.en_eventindex.translation_key
+        ))
+
+        # Add an award to the speaker
+        # TODO: Nested child objects not supported by page copy
+        en_speaker = self.en_eventpage.speakers.get()
+        # en_award = EventPageSpeakerAward.objects.create(
+        #     speaker=en_speaker,
+        #     name="Golden Globe"
+        # )
+
+        fr_eventpage = self.en_eventpage.copy_for_translation(self.fr_locale)
+
+        # Check that the speakers and awards were copied for translation properly
+        fr_speaker = fr_eventpage.speakers.get()
+        self.assertEqual(fr_speaker.locale, self.fr_locale)
+        self.assertEqual(fr_speaker.translation_key, en_speaker.translation_key)
+        self.assertEqual(list(fr_speaker.get_translations()), [en_speaker])
+
+        # TODO: Nested child objects not supported by page copy
+        # fr_award = fr_speaker.awards.get()
+        # self.assertEqual(ffr_award.locale, self.fr_locale)
+        # self.assertEqual(ffr_award.translation_key, en_award.translation_key)
+        # self.assertEqual(list(fr_award.get_translations()), [en_award])
+
+    def test_copies_missing_parents_as_aliases(self):
+        fr_eventpage = self.en_eventpage.copy_for_translation(self.fr_locale, copy_parents=True)
+        fr_eventindex = fr_eventpage.get_parent()
+
+        # Check parent is a translation of its English original
+        self.assertEqual(fr_eventindex.locale, self.fr_locale)
+        self.assertEqual(fr_eventindex.translation_key, self.en_eventindex.translation_key)
+
+        # Check parent is also an alias of its English original
+        self.assertEqual(fr_eventindex.alias_of, self.en_eventindex)
 
 
 class TestSubpageTypeBusinessRules(TestCase, WagtailTestUtils):
@@ -1800,6 +2624,7 @@ class TestPageWithContentJSON(TestCase):
 
 
 class TestUnpublish(TestCase):
+    fixtures = ['test.json']
 
     def test_unpublish_doesnt_call_full_clean_before_save(self):
         root_page = Page.objects.get(id=1)
@@ -1810,6 +2635,30 @@ class TestUnpublish(TestCase):
         home_page.save(clean=False)
         # This shouldn't fail with a ValidationError.
         home_page.unpublish()
+
+    def test_unpublish_also_unpublishes_aliases(self):
+        event_page = EventPage.objects.get(url_path='/home/events/christmas/')
+        alias = event_page.create_alias(update_slug='new-event-page')
+        alias_alias = alias.create_alias(update_slug='new-event-page-2')
+
+        self.assertTrue(event_page.live)
+        self.assertTrue(alias.live)
+        self.assertTrue(alias_alias.live)
+
+        PageLogEntry.objects.all().delete()
+
+        # Unpublish the event page
+        event_page.unpublish()
+
+        alias.refresh_from_db()
+        alias_alias.refresh_from_db()
+        self.assertFalse(event_page.live)
+        self.assertFalse(alias.live)
+        self.assertFalse(alias_alias.live)
+
+        # Check log entries were created for the aliases
+        self.assertTrue(PageLogEntry.objects.filter(page=alias, action='wagtail.unpublish').exists())
+        self.assertTrue(PageLogEntry.objects.filter(page=alias_alias, action='wagtail.unpublish').exists())
 
 
 class TestCachedContentType(TestCase):
@@ -1834,3 +2683,90 @@ class TestCachedContentType(TestCase):
         self.assertEqual(
             result, ContentType.objects.get(id=self.page.content_type_id)
         )
+
+
+class TestGetTranslatableModels(TestCase):
+    def test_get_translatable_models(self):
+        translatable_models = get_translatable_models()
+
+        # Only root translatable models should be included by default
+        self.assertNotIn(EventPage, translatable_models)
+
+        self.assertIn(Page, translatable_models)
+        self.assertIn(EventPageSpeaker, translatable_models)
+        self.assertNotIn(Site, translatable_models)
+        self.assertNotIn(Advert, translatable_models)
+
+    def test_get_translatable_models_include_subclasses(self):
+        translatable_models = get_translatable_models(include_subclasses=True)
+
+        self.assertIn(EventPage, translatable_models)
+
+        self.assertIn(Page, translatable_models)
+        self.assertIn(EventPageSpeaker, translatable_models)
+        self.assertNotIn(Site, translatable_models)
+        self.assertNotIn(Advert, translatable_models)
+
+
+class TestDefaultLocale(TestCase):
+    def setUp(self):
+        self.root_page = Page.objects.first()
+
+    def test_default_locale(self):
+        page = self.root_page.add_child(
+            instance=SimplePage(title="Test1", slug="test1", content="test")
+        )
+
+        self.assertEqual(page.locale, self.root_page.locale)
+
+    def test_override_default_locale(self):
+        fr_locale = Locale.objects.create(language_code="fr")
+
+        page = self.root_page.add_child(
+            instance=SimplePage(title="Test1", slug="test1", content="test", locale=fr_locale)
+        )
+
+        self.assertEqual(page.locale, fr_locale)
+
+    def test_always_defaults_to_parent_locale(self):
+        fr_locale = Locale.objects.create(language_code="fr")
+
+        fr_page = self.root_page.add_child(
+            instance=SimplePage(title="Test1", slug="test1", content="test", locale=fr_locale)
+        )
+
+        page = fr_page.add_child(
+            instance=SimplePage(title="Test1", slug="test1", content="test")
+        )
+
+        self.assertEqual(page.locale, fr_locale)
+
+
+class TestLocalized(TestCase):
+    fixtures = ['test.json']
+
+    def setUp(self):
+        self.fr_locale = Locale.objects.create(language_code="fr")
+        self.event_page = Page.objects.get(url_path='/home/events/christmas/')
+        self.fr_event_page = self.event_page.copy_for_translation(self.fr_locale, copy_parents=True)
+        self.fr_event_page.title = 'Noël'
+        self.fr_event_page.save(update_fields=['title'])
+        self.fr_event_page.save_revision().publish()
+
+    def test_localized_same_language(self):
+        self.assertEqual(self.event_page.localized, self.event_page)
+        self.assertEqual(self.event_page.localized_draft, self.event_page)
+
+    def test_localized_different_language(self):
+        with translation.override("fr"):
+            self.assertEqual(self.event_page.localized, self.fr_event_page.page_ptr)
+            self.assertEqual(self.event_page.localized_draft, self.fr_event_page.page_ptr)
+
+    def test_localized_different_language_unpublished(self):
+        # We shouldn't autolocalize if the translation is unpublished
+        self.fr_event_page.unpublish()
+        self.fr_event_page.save()
+
+        with translation.override("fr"):
+            self.assertEqual(self.event_page.localized, self.event_page)
+            self.assertEqual(self.event_page.localized_draft, self.fr_event_page.page_ptr)

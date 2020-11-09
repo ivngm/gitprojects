@@ -1,7 +1,6 @@
 from django.conf import settings
-from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group, Permission
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ValidationError
 from django.core.files.base import ContentFile
 from django.db import transaction
 from django.test import TestCase, TransactionTestCase
@@ -44,15 +43,14 @@ class TestDocumentQuerySet(TestCase):
         self.assertEqual(list(results), [zzz_document, aaa_document])
 
 
-class TestDocumentPermissions(TestCase):
+class TestDocumentPermissions(TestCase, WagtailTestUtils):
     def setUp(self):
         # Create some user accounts for testing permissions
-        User = get_user_model()
-        self.user = User.objects.create_user(username='user', email='user@email.com', password='password')
-        self.owner = User.objects.create_user(username='owner', email='owner@email.com', password='password')
-        self.editor = User.objects.create_user(username='editor', email='editor@email.com', password='password')
+        self.user = self.create_user(username='user', email='user@email.com', password='password')
+        self.owner = self.create_user(username='owner', email='owner@email.com', password='password')
+        self.editor = self.create_user(username='editor', email='editor@email.com', password='password')
         self.editor.groups.add(Group.objects.get(name='Editors'))
-        self.administrator = User.objects.create_superuser(
+        self.administrator = self.create_superuser(
             username='administrator',
             email='administrator@email.com',
             password='password'
@@ -87,21 +85,43 @@ class TestDocumentFilenameProperties(TestCase):
         self.document = models.Document(title="Test document")
         self.document.file.save('example.doc', ContentFile("A boring example document"))
 
+        self.pdf_document = models.Document(title="Test document")
+        self.pdf_document.file.save('example.pdf', ContentFile("A boring example document"))
+
         self.extensionless_document = models.Document(title="Test document")
         self.extensionless_document.file.save('example', ContentFile("A boring example document"))
 
     def test_filename(self):
         self.assertEqual('example.doc', self.document.filename)
+        self.assertEqual('example.pdf', self.pdf_document.filename)
         self.assertEqual('example', self.extensionless_document.filename)
 
     def test_file_extension(self):
         self.assertEqual('doc', self.document.file_extension)
+        self.assertEqual('pdf', self.pdf_document.file_extension)
         self.assertEqual('', self.extensionless_document.file_extension)
+
+    def test_content_type(self):
+        self.assertEqual('application/msword', self.document.content_type)
+        self.assertEqual('application/pdf', self.pdf_document.content_type)
+        self.assertEqual('application/octet-stream', self.extensionless_document.content_type)
+
+    def test_content_disposition(self):
+        self.assertEqual(
+            '''attachment; filename=example.doc; filename*=UTF-8''example.doc''',
+            self.document.content_disposition
+        )
+        self.assertEqual('inline', self.pdf_document.content_disposition)
+        self.assertEqual(
+            '''attachment; filename=example; filename*=UTF-8''example''',
+            self.extensionless_document.content_disposition
+        )
 
     def tearDown(self):
         # delete the FieldFile directly because the TestCase does not commit
         # transactions to trigger transaction.on_commit() in the signal handler
         self.document.file.delete()
+        self.pdf_document.file.delete()
         self.extensionless_document.file.delete()
 
 
@@ -139,6 +159,47 @@ class TestFilesDeletedForDefaultModels(TransactionTestCase):
             document.delete()
             self.assertTrue(document.file.storage.exists(filename))
         self.assertFalse(document.file.storage.exists(filename))
+
+
+@override_settings(WAGTAILDOCS_EXTENSIONS=["pdf"])
+class TestDocumentValidateExtensions(TestCase):
+    def setUp(self):
+        self.document_invalid = models.Document.objects.create(
+            title="Test document", file="test.doc"
+        )
+        self.document_valid = models.Document.objects.create(
+            title="Test document", file="test.pdf"
+        )
+
+    def test_create_doc_invalid_extension(self):
+        """
+        Checks if the uploaded document has the expected extensions
+        mentioned in settings.WAGTAILDOCS_EXTENSIONS
+
+        This is caught in form.error and should be raised during model
+        creation when called full_clean. This specific testcase invalid
+        file extension is passed
+        """
+        with self.assertRaises(ValidationError):
+            self.document_invalid.full_clean()
+
+    def test_create_doc_valid_extension(self):
+        """
+        Checks if the uploaded document has the expected extensions
+        mentioned in settings.WAGTAILDOCS_EXTENSIONS
+
+        This is caught in form.error and should be raised during
+        model creation when called full_clean. In this specific
+        testcase invalid file extension is passed.
+        """
+        try:
+            self.document_valid.full_clean()
+        except ValidationError:
+            self.fail("Validation error is raised even when valid file name is passed")
+
+    def tearDown(self):
+        self.document_invalid.file.delete()
+        self.document_valid.file.delete()
 
 
 @override_settings(WAGTAILDOCS_DOCUMENT_MODEL='tests.CustomDocument')

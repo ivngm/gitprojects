@@ -82,7 +82,7 @@ class TestRevisions(TestCase, WagtailTestUtils):
         self.assertContains(response, "Last Christmas I gave you my heart")
 
     def test_preview_revision_with_no_page_permissions_redirects_to_admin(self):
-        admin_only_user = get_user_model().objects.create_user(
+        admin_only_user = self.create_user(
             username='admin_only',
             email='admin_only@email.com',
             password='password'
@@ -107,12 +107,12 @@ class TestRevisions(TestCase, WagtailTestUtils):
         editors_group = Group.objects.get(name='Site-wide editors')
         editors_group.page_permissions.update(page_id=st_patricks.id)
 
-        editor = get_user_model().objects.get(username='siteeditor')
+        editor = get_user_model().objects.get(email='siteeditor@example.com')
 
         self.login(editor)
         response = self.request_preview_revision()
 
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 302)
 
     def test_revert_revision(self):
         last_christmas_preview_url = reverse(
@@ -387,8 +387,8 @@ class TestRevisionsUnschedule(TestCase, WagtailTestUtils):
         # Get unschedule page
         response = self.client.get(reverse('wagtailadmin_pages:revisions_unschedule', args=(self.christmas_event.id, self.this_christmas_revision.id)))
 
-        # Check that the user received a 403 response
-        self.assertEqual(response.status_code, 403)
+        # Check that the user received a 302 redirected response
+        self.assertEqual(response.status_code, 302)
 
     def test_unschedule_view_post(self):
         """

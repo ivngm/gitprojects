@@ -7,6 +7,7 @@ from django.core import checks
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest, HttpResponse
 from django.test import RequestFactory, TestCase
 from django.test.utils import override_settings
@@ -15,15 +16,19 @@ from taggit.models import Tag
 
 from wagtail.admin.edit_handlers import FieldPanel
 from wagtail.admin.forms import WagtailAdminModelForm
-from wagtail.core.models import Page
+from wagtail.core import hooks
+from wagtail.core.models import Locale, Page
+from wagtail.snippets.action_menu import ActionMenuItem, get_base_snippet_action_menu_items
 from wagtail.snippets.blocks import SnippetChooserBlock
 from wagtail.snippets.edit_handlers import SnippetChooserPanel
 from wagtail.snippets.models import SNIPPET_MODELS, register_snippet
 from wagtail.snippets.views.snippets import get_snippet_edit_handler
+from wagtail.snippets.widgets import SnippetListingButton
 from wagtail.tests.snippets.forms import FancySnippetForm
 from wagtail.tests.snippets.models import (
     AlphaSnippet, FancySnippet, FileUploadSnippet, RegisterDecorator, RegisterFunction,
-    SearchableSnippet, StandardSnippet, StandardSnippetWithCustomPrimaryKey, ZuluSnippet)
+    SearchableSnippet, StandardSnippet, StandardSnippetWithCustomPrimaryKey, TranslatableSnippet,
+    ZuluSnippet)
 from wagtail.tests.testapp.models import (
     Advert, AdvertWithCustomPrimaryKey, AdvertWithCustomUUIDPrimaryKey, AdvertWithTabbedInterface,
     SnippetChooserModel, SnippetChooserModelWithCustomPrimaryKey)
@@ -32,10 +37,20 @@ from wagtail.tests.utils import WagtailTestUtils
 
 class TestSnippetIndexView(TestCase, WagtailTestUtils):
     def setUp(self):
-        self.login()
+        self.user = self.login()
 
     def get(self, params={}):
         return self.client.get(reverse('wagtailsnippets:index'), params)
+
+    def test_get_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.get()
+        self.assertEqual(response.status_code, 302)
 
     def test_simple(self):
         response = self.get()
@@ -49,6 +64,8 @@ class TestSnippetIndexView(TestCase, WagtailTestUtils):
 class TestSnippetListView(TestCase, WagtailTestUtils):
     def setUp(self):
         self.login()
+        user_model = get_user_model()
+        self.user = user_model.objects.get()
 
     def get(self, params={}):
         return self.client.get(reverse('wagtailsnippets:list',
@@ -59,6 +76,16 @@ class TestSnippetListView(TestCase, WagtailTestUtils):
         response = self.get()
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, 'wagtailsnippets/snippets/type_index.html')
+
+    def get_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.get()
+        self.assertEqual(response.status_code, 302)
 
     def test_ordering(self):
         """
@@ -83,6 +110,86 @@ class TestSnippetListView(TestCase, WagtailTestUtils):
 
     def test_not_searchable(self):
         self.assertFalse(self.get().context['is_searchable'])
+
+    def test_register_snippet_listing_buttons_hook(self):
+        advert = Advert.objects.create(text="My Lovely advert")
+
+        def page_listing_buttons(snippet, user, next_url=None):
+            self.assertEqual(snippet, advert)
+            self.assertEqual(user, self.user)
+            self.assertEqual(next_url, reverse('wagtailsnippets:list', args=('tests', 'advert')))
+
+            yield SnippetListingButton(
+                'Another useless snippet listing button',
+                '/custom-url',
+                priority=10
+            )
+
+        with hooks.register_temporarily('register_snippet_listing_buttons', page_listing_buttons):
+            response = self.get()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'wagtailsnippets/snippets/listing_buttons.html')
+
+        self.assertContains(response, 'Another useless snippet listing button')
+
+    def test_construct_snippet_listing_buttons_hook(self):
+        Advert.objects.create(text="My Lovely advert")
+
+        # testapp implements a construct_snippetlisting_buttons hook
+        # that add's an dummy button with the label 'Dummy Button' which points
+        # to '/dummy-button'
+        response = self.get()
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'wagtailsnippets/snippets/listing_buttons.html')
+        self.assertContains(response, 'Dummy Button')
+        self.assertContains(response, '/dummy-button')
+
+
+@override_settings(WAGTAIL_I18N_ENABLED=True)
+class TestLocaleSelectorOnList(TestCase, WagtailTestUtils):
+    def setUp(self):
+        self.fr_locale = Locale.objects.create(language_code='fr')
+        self.user = self.login()
+
+    def test_locale_selector(self):
+        response = self.client.get(
+            reverse('wagtailsnippets:list', args=['snippetstests', 'translatablesnippet'])
+        )
+
+        switch_to_french_url = reverse('wagtailsnippets:list', args=['snippetstests', 'translatablesnippet']) + '?locale=fr'
+        self.assertContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
+        # Check that the add URLs include the locale
+        add_url = reverse('wagtailsnippets:add', args=['snippetstests', 'translatablesnippet']) + '?locale=en'
+        self.assertContains(response, f'<a href="{add_url}" class="button bicolor button--icon">')
+        self.assertContains(response, f'No translatable snippets have been created. Why not <a href="{add_url}">add one</a>')
+
+    @override_settings(WAGTAIL_I18N_ENABLED=False)
+    def test_locale_selector_not_present_when_i18n_disabled(self):
+        response = self.client.get(
+            reverse('wagtailsnippets:list', args=['snippetstests', 'translatablesnippet'])
+        )
+
+        switch_to_french_url = reverse('wagtailsnippets:list', args=['snippetstests', 'translatablesnippet']) + '?locale=fr'
+        self.assertNotContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
+        # Check that the add URLs don't include the locale
+        add_url = reverse('wagtailsnippets:add', args=['snippetstests', 'translatablesnippet'])
+        self.assertContains(response, f'<a href="{add_url}" class="button bicolor button--icon">')
+        self.assertContains(response, f'No translatable snippets have been created. Why not <a href="{add_url}">add one</a>')
+
+    def test_locale_selector_not_present_on_non_translatable_snippet(self):
+        response = self.client.get(
+            reverse('wagtailsnippets:list', args=['tests', 'advert'])
+        )
+
+        self.assertNotContains(response, 'aria-label="French" class="u-link is-live">')
+
+        # Check that the add URLs don't include the locale
+        add_url = reverse('wagtailsnippets:add', args=['tests', 'advert'])
+        self.assertContains(response, f'<a href="{add_url}" class="button bicolor button--icon">')
+        self.assertContains(response, f'No adverts have been created. Why not <a href="{add_url}">add one</a>')
 
 
 class TestModelOrdering(TestCase, WagtailTestUtils):
@@ -156,7 +263,7 @@ class TestSnippetListViewWithSearchableSnippet(TestCase, WagtailTestUtils):
 
 class TestSnippetCreateView(TestCase, WagtailTestUtils):
     def setUp(self):
-        self.login()
+        self.user = self.login()
 
     def get(self, params={}, model=Advert):
         args = (model._meta.app_label, model._meta.model_name)
@@ -165,6 +272,16 @@ class TestSnippetCreateView(TestCase, WagtailTestUtils):
     def post(self, post_data={}, model=Advert):
         args = (model._meta.app_label, model._meta.model_name)
         return self.client.post(reverse('wagtailsnippets:add', args=args), post_data)
+
+    def test_get_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.get()
+        self.assertEqual(response.status_code, 302)
 
     def test_simple(self):
         response = self.get()
@@ -183,6 +300,17 @@ class TestSnippetCreateView(TestCase, WagtailTestUtils):
         self.assertContains(response, '<ul class="tab-nav merged" role="tablist">')
         self.assertContains(response, '<a href="#tab-advert" class="active">Advert</a>', html=True)
         self.assertContains(response, '<a href="#tab-other" class="">Other</a>', html=True)
+
+    def test_create_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.post(post_data={'text': 'test text',
+                                        'url': 'http://www.example.com/'})
+        self.assertEqual(response.status_code, 302)
 
     def test_create_invalid(self):
         response = self.post(post_data={'foo': 'bar'})
@@ -228,6 +356,37 @@ class TestSnippetCreateView(TestCase, WagtailTestUtils):
         snippet = FileUploadSnippet.objects.get()
         self.assertEqual(snippet.file.read(), b"Uploaded file")
 
+    def test_before_create_snippet_hook_get(self):
+        def hook_func(request, model):
+            self.assertIsInstance(request, HttpRequest)
+            self.assertEqual(model, Advert)
+            return HttpResponse("Overridden!")
+
+        with self.register_hook('before_create_snippet', hook_func):
+            response = self.get()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"Overridden!")
+
+    def test_before_create_snippet_hook_post(self):
+        def hook_func(request, model):
+            self.assertIsInstance(request, HttpRequest)
+            self.assertEqual(model, Advert)
+            return HttpResponse("Overridden!")
+
+        with self.register_hook('before_create_snippet', hook_func):
+            post_data = {
+                'text': 'Hook test',
+                'url': 'http://www.example.com/'
+            }
+            response = self.post(post_data=post_data)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"Overridden!")
+
+        # Request intercepted before advert was created
+        self.assertFalse(Advert.objects.exists())
+
     def test_after_create_snippet_hook(self):
         def hook_func(request, instance):
             self.assertIsInstance(request, HttpRequest)
@@ -245,6 +404,92 @@ class TestSnippetCreateView(TestCase, WagtailTestUtils):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"Overridden!")
 
+        # Request intercepted after advert was created
+        self.assertTrue(Advert.objects.exists())
+
+    def test_register_snippet_action_menu_item(self):
+        class TestSnippetActionMenuItem(ActionMenuItem):
+            label = "Test"
+            name = "test"
+            icon_name = "undo"
+            classname = 'action-secondary'
+
+            def is_shown(self, request, context):
+                return True
+
+        def hook_func(model):
+            return TestSnippetActionMenuItem(order=0)
+
+        with self.register_hook('register_snippet_action_menu_item', hook_func):
+            get_base_snippet_action_menu_items.cache_clear()
+
+            response = self.get()
+
+        get_base_snippet_action_menu_items.cache_clear()
+
+        self.assertContains(response, '<button type="submit" name="test" value="Test" class="button action-secondary"><svg class="icon icon-undo icon" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>Test</button>', html=True)
+
+    def test_construct_snippet_action_menu(self):
+        class TestSnippetActionMenuItem(ActionMenuItem):
+            label = "Test"
+            name = "test"
+            icon_name = "undo"
+            classname = 'action-secondary'
+
+            def is_shown(self, request, context):
+                return True
+
+        def hook_func(menu_items, request, context):
+            self.assertIsInstance(menu_items, list)
+            self.assertIsInstance(request, WSGIRequest)
+            self.assertEqual(context['view'], 'create')
+            self.assertEqual(context['model'], Advert)
+
+            # Replace save menu item
+            menu_items[:] = [
+                TestSnippetActionMenuItem(order=0)
+            ]
+
+        with self.register_hook('construct_snippet_action_menu', hook_func):
+            response = self.get()
+
+        self.assertContains(response, '<button type="submit" name="test" value="Test" class="button action-secondary"><svg class="icon icon-undo icon" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>Test</button>', html=True)
+        self.assertNotContains(response, 'Save')
+
+
+@override_settings(WAGTAIL_I18N_ENABLED=True)
+class TestLocaleSelectorOnCreate(TestCase, WagtailTestUtils):
+    fixtures = ['test.json']
+
+    def setUp(self):
+        self.fr_locale = Locale.objects.create(language_code='fr')
+        self.user = self.login()
+
+    def test_locale_selector(self):
+        response = self.client.get(
+            reverse('wagtailsnippets:add', args=['snippetstests', 'translatablesnippet'])
+        )
+
+        switch_to_french_url = reverse('wagtailsnippets:add', args=['snippetstests', 'translatablesnippet']) + '?locale=fr'
+        self.assertContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
+    @override_settings(WAGTAIL_I18N_ENABLED=False)
+    def test_locale_selector_not_present_when_i18n_disabled(self):
+        response = self.client.get(
+            reverse('wagtailsnippets:add', args=['snippetstests', 'translatablesnippet'])
+        )
+
+        switch_to_french_url = reverse('wagtailsnippets:add', args=['snippetstests', 'translatablesnippet']) + '?locale=fr'
+        self.assertNotContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
+    def test_locale_selector_not_present_on_non_translatable_snippet(self):
+        response = self.client.get(
+            reverse('wagtailsnippets:add', args=['tests', 'advert'])
+        )
+
+        switch_to_french_url = reverse('wagtailsnippets:add', args=['tests', 'advert']) + '?locale=fr'
+        self.assertNotContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
 
 class BaseTestSnippetEditView(TestCase, WagtailTestUtils):
 
@@ -259,7 +504,7 @@ class BaseTestSnippetEditView(TestCase, WagtailTestUtils):
         return self.client.post(reverse('wagtailsnippets:edit', args=args), post_data)
 
     def setUp(self):
-        self.login()
+        self.user = self.login()
 
 
 class TestSnippetEditView(BaseTestSnippetEditView):
@@ -268,6 +513,16 @@ class TestSnippetEditView(BaseTestSnippetEditView):
     def setUp(self):
         super().setUp()
         self.test_snippet = Advert.objects.get(pk=1)
+
+    def test_get_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.get()
+        self.assertEqual(response.status_code, 302)
 
     def test_simple(self):
         response = self.get()
@@ -284,6 +539,17 @@ class TestSnippetEditView(BaseTestSnippetEditView):
     def test_nonexistant_id(self):
         response = self.client.get(reverse('wagtailsnippets:edit', args=('tests', 'advert', 999999)))
         self.assertEqual(response.status_code, 404)
+
+    def test_edit_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.post(post_data={'text': 'test text',
+                                        'url': 'http://www.example.com/'})
+        self.assertEqual(response.status_code, 302)
 
     def test_edit_invalid(self):
         response = self.post(post_data={'foo': 'bar'})
@@ -318,6 +584,38 @@ class TestSnippetEditView(BaseTestSnippetEditView):
             list(snippet.tags.order_by('name')),
             expected_tags)
 
+    def test_before_edit_snippet_hook_get(self):
+
+        def hook_func(request, instance):
+            self.assertIsInstance(request, HttpRequest)
+            self.assertEqual(instance.text, 'test_advert')
+            self.assertEqual(instance.url, 'http://www.example.com')
+            return HttpResponse("Overridden!")
+
+        with self.register_hook('before_edit_snippet', hook_func):
+            response = self.get()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"Overridden!")
+
+    def test_before_edit_snippet_hook_post(self):
+
+        def hook_func(request, instance):
+            self.assertIsInstance(request, HttpRequest)
+            self.assertEqual(instance.text, 'test_advert')
+            self.assertEqual(instance.url, 'http://www.example.com')
+            return HttpResponse("Overridden!")
+
+        with self.register_hook('before_edit_snippet', hook_func):
+            response = self.post(post_data={'text': 'Edited and runs hook',
+                                            'url': 'http://www.example.com/hook-enabled-edited'})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"Overridden!")
+
+        # Request intercepted before advert was updated
+        self.assertEqual(Advert.objects.get().text, "test_advert")
+
     def test_after_edit_snippet_hook(self):
 
         def hook_func(request, instance):
@@ -332,6 +630,47 @@ class TestSnippetEditView(BaseTestSnippetEditView):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"Overridden!")
+
+        # Request intercepted after advert was updated
+        self.assertEqual(Advert.objects.get().text, "Edited and runs hook")
+
+    def test_register_snippet_action_menu_item(self):
+        class TestSnippetActionMenuItem(ActionMenuItem):
+            label = "Test"
+            name = "test"
+            icon_name = "undo"
+            classname = 'action-secondary'
+
+            def is_shown(self, request, context):
+                return True
+
+        def hook_func(model):
+            return TestSnippetActionMenuItem(order=0)
+
+        with self.register_hook('register_snippet_action_menu_item', hook_func):
+            get_base_snippet_action_menu_items.cache_clear()
+
+            response = self.get()
+
+        get_base_snippet_action_menu_items.cache_clear()
+
+        self.assertContains(response, '<button type="submit" name="test" value="Test" class="button action-secondary"><svg class="icon icon-undo icon" aria-hidden="true" focusable="false"><use href="#icon-undo"></use></svg>Test</button>', html=True)
+
+    def test_construct_snippet_action_menu(self):
+        def hook_func(menu_items, request, context):
+            self.assertIsInstance(menu_items, list)
+            self.assertIsInstance(request, WSGIRequest)
+            self.assertEqual(context['view'], 'edit')
+            self.assertEqual(context['instance'], self.test_snippet)
+            self.assertEqual(context['model'], Advert)
+
+            # Remove the save item
+            del menu_items[0]
+
+        with self.register_hook('construct_snippet_action_menu', hook_func):
+            response = self.get()
+
+        self.assertNotContains(response, 'Save')
 
 
 class TestEditTabbedSnippet(BaseTestSnippetEditView):
@@ -372,16 +711,88 @@ class TestEditFileUploadSnippet(BaseTestSnippetEditView):
         self.assertEqual(snippet.file.read(), b"Replacement document")
 
 
+@override_settings(WAGTAIL_I18N_ENABLED=True)
+class TestLocaleSelectorOnEdit(BaseTestSnippetEditView):
+    fixtures = ['test.json']
+
+    LOCALE_SELECTOR_HTML = '<a href="javascript:void(0)" aria-label="English" class="c-dropdown__button  u-btn-current">'
+    LOCALE_INDICATOR_HTML = '<use href="#icon-site"></use></svg>\n    English'
+
+    def setUp(self):
+        super().setUp()
+        self.test_snippet = TranslatableSnippet.objects.create(text="This is a test")
+        self.fr_locale = Locale.objects.create(language_code='fr')
+        self.test_snippet_fr = self.test_snippet.copy_for_translation(self.fr_locale)
+        self.test_snippet_fr.save()
+
+    def test_locale_selector(self):
+        response = self.get()
+
+        self.assertContains(response, self.LOCALE_SELECTOR_HTML)
+
+        switch_to_french_url = reverse('wagtailsnippets:edit', args=['snippetstests', 'translatablesnippet', quote(self.test_snippet_fr.pk)])
+        self.assertContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
+    def test_locale_selector_without_translation(self):
+        self.test_snippet_fr.delete()
+
+        response = self.get()
+
+        self.assertContains(response, self.LOCALE_INDICATOR_HTML)
+
+        switch_to_french_url = reverse('wagtailsnippets:edit', args=['snippetstests', 'translatablesnippet', quote(self.test_snippet_fr.pk)])
+        self.assertNotContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
+    @override_settings(WAGTAIL_I18N_ENABLED=False)
+    def test_locale_selector_not_present_when_i18n_disabled(self):
+        response = self.get()
+
+        self.assertNotContains(response, self.LOCALE_SELECTOR_HTML)
+
+        switch_to_french_url = reverse('wagtailsnippets:edit', args=['snippetstests', 'translatablesnippet', quote(self.test_snippet_fr.pk)])
+        self.assertNotContains(response, f'<a href="{switch_to_french_url}" aria-label="French" class="u-link is-live">')
+
+    def test_locale_selector_not_present_on_non_translatable_snippet(self):
+        self.test_snippet = Advert.objects.get(pk=1)
+
+        response = self.get()
+
+        self.assertNotContains(response, self.LOCALE_SELECTOR_HTML)
+        self.assertNotContains(response, 'aria-label="French" class="u-link is-live">')
+
+
 class TestSnippetDelete(TestCase, WagtailTestUtils):
     fixtures = ['test.json']
 
     def setUp(self):
         self.test_snippet = Advert.objects.get(pk=1)
-        self.login()
+        self.user = self.login()
+
+    def test_delete_get_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.client.get(reverse('wagtailsnippets:delete', args=('tests', 'advert', quote(self.test_snippet.pk), )))
+        self.assertEqual(response.status_code, 302)
 
     def test_delete_get(self):
         response = self.client.get(reverse('wagtailsnippets:delete', args=('tests', 'advert', quote(self.test_snippet.pk), )))
         self.assertEqual(response.status_code, 200)
+
+    def test_delete_post_with_limited_permissions(self):
+        self.user.is_superuser = False
+        self.user.user_permissions.add(
+            Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
+        )
+        self.user.save()
+
+        response = self.client.post(
+            reverse('wagtailsnippets:delete', args=('tests', 'advert', quote(self.test_snippet.pk), ))
+        )
+        self.assertEqual(response.status_code, 302)
 
     def test_delete_post(self):
         response = self.client.post(
@@ -402,6 +813,45 @@ class TestSnippetDelete(TestCase, WagtailTestUtils):
         self.assertContains(response, 'Used 2 times')
         self.assertContains(response, self.test_snippet.usage_url())
 
+    def test_before_delete_snippet_hook_get(self):
+        advert = Advert.objects.create(
+            url='http://www.example.com/',
+            text='Test hook',
+        )
+
+        def hook_func(request, instances):
+            self.assertIsInstance(request, HttpRequest)
+            self.assertQuerysetEqual(instances, ["<Advert: Test hook>"])
+            return HttpResponse("Overridden!")
+
+        with self.register_hook('before_delete_snippet', hook_func):
+            response = self.client.get(reverse('wagtailsnippets:delete', args=['tests', 'advert', quote(advert.pk)]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"Overridden!")
+
+    def test_before_delete_snippet_hook_post(self):
+        advert = Advert.objects.create(
+            url='http://www.example.com/',
+            text='Test hook',
+        )
+
+        def hook_func(request, instances):
+            self.assertIsInstance(request, HttpRequest)
+            self.assertQuerysetEqual(instances, ["<Advert: Test hook>"])
+            return HttpResponse("Overridden!")
+
+        with self.register_hook('before_delete_snippet', hook_func):
+            response = self.client.post(
+                reverse('wagtailsnippets:delete', args=('tests', 'advert', quote(advert.pk), ))
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"Overridden!")
+
+        # Request intercepted before advert was deleted
+        self.assertTrue(Advert.objects.filter(pk=advert.pk).exists())
+
     def test_after_delete_snippet_hook(self):
         advert = Advert.objects.create(
             url='http://www.example.com/',
@@ -420,6 +870,9 @@ class TestSnippetDelete(TestCase, WagtailTestUtils):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b"Overridden!")
+
+        # Request intercepted after advert was deleted
+        self.assertFalse(Advert.objects.filter(pk=advert.pk).exists())
 
 
 class TestSnippetDeleteMultipleWithOne(TestCase, WagtailTestUtils):
@@ -692,7 +1145,7 @@ class TestAddOnlyPermissions(TestCase, WagtailTestUtils):
         self.test_snippet = Advert.objects.get(pk=1)
 
         # Create a user with add_advert permission but not change_advert
-        user = get_user_model().objects.create_user(
+        user = self.create_user(
             username='addonly',
             email='addonly@example.com',
             password='password'
@@ -700,7 +1153,7 @@ class TestAddOnlyPermissions(TestCase, WagtailTestUtils):
         add_permission = Permission.objects.get(content_type__app_label='tests', codename='add_advert')
         admin_permission = Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
         user.user_permissions.add(add_permission, admin_permission)
-        self.assertTrue(self.client.login(username='addonly', password='password'))
+        self.login(username='addonly', password='password')
 
     def test_get_index(self):
         response = self.client.get(reverse('wagtailsnippets:list',
@@ -743,7 +1196,7 @@ class TestEditOnlyPermissions(TestCase, WagtailTestUtils):
         self.test_snippet = Advert.objects.get(pk=1)
 
         # Create a user with change_advert permission but not add_advert
-        user = get_user_model().objects.create_user(
+        user = self.create_user(
             username='changeonly',
             email='changeonly@example.com',
             password='password'
@@ -751,7 +1204,7 @@ class TestEditOnlyPermissions(TestCase, WagtailTestUtils):
         change_permission = Permission.objects.get(content_type__app_label='tests', codename='change_advert')
         admin_permission = Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
         user.user_permissions.add(change_permission, admin_permission)
-        self.assertTrue(self.client.login(username='changeonly', password='password'))
+        self.login(username='changeonly', password='password')
 
     def test_get_index(self):
         response = self.client.get(reverse('wagtailsnippets:list',
@@ -794,15 +1247,14 @@ class TestDeleteOnlyPermissions(TestCase, WagtailTestUtils):
         self.test_snippet = Advert.objects.get(pk=1)
 
         # Create a user with delete_advert permission
-        user = get_user_model().objects.create_user(
+        user = self.create_user(
             username='deleteonly',
-            email='deleteeonly@example.com',
             password='password'
         )
         change_permission = Permission.objects.get(content_type__app_label='tests', codename='delete_advert')
         admin_permission = Permission.objects.get(content_type__app_label='wagtailadmin', codename='access_admin')
         user.user_permissions.add(change_permission, admin_permission)
-        self.assertTrue(self.client.login(username='deleteonly', password='password'))
+        self.login(username='deleteonly', password='password')
 
     def test_get_index(self):
         response = self.client.get(reverse('wagtailsnippets:list',

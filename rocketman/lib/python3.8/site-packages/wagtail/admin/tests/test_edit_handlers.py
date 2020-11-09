@@ -9,9 +9,8 @@ from django.core.exceptions import FieldDoesNotExist, ImproperlyConfigured
 from django.test import RequestFactory, TestCase, override_settings
 
 from wagtail.admin.edit_handlers import (
-    FieldPanel, FieldRowPanel, InlinePanel, ObjectList, PageChooserPanel,
-    RichTextFieldPanel, TabbedInterface, extract_panel_definitions_from_model_class,
-    get_form_for_model)
+    FieldPanel, FieldRowPanel, InlinePanel, ObjectList, PageChooserPanel, RichTextFieldPanel,
+    TabbedInterface, extract_panel_definitions_from_model_class, get_form_for_model)
 from wagtail.admin.forms import WagtailAdminModelForm, WagtailAdminPageForm
 from wagtail.admin.rich_text import DraftailRichTextArea
 from wagtail.admin.widgets import AdminAutoHeightTextInput, AdminDateInput, AdminPageChooser
@@ -19,8 +18,8 @@ from wagtail.core.models import Page, Site
 from wagtail.images.edit_handlers import ImageChooserPanel
 from wagtail.tests.testapp.forms import ValidatedPageForm
 from wagtail.tests.testapp.models import (
-    EventPage, EventPageChooserModel, EventPageSpeaker, PageChooserModel,
-    RestaurantPage, RestaurantTag, SimplePage, ValidatedPage)
+    EventPage, EventPageChooserModel, EventPageSpeaker, PageChooserModel, RestaurantPage,
+    RestaurantTag, SimplePage, ValidatedPage)
 from wagtail.tests.utils import WagtailTestUtils
 
 
@@ -388,7 +387,7 @@ class TestObjectList(TestCase):
         self.assertInHTML('<label for="id_date_from">Start date</label>', result)
 
         # result should include help text for children
-        self.assertIn('<div class="object-help help"><span class="icon-help-inverse" aria-hidden="true"></span>Not required if event is on a single day</div>', result)
+        self.assertInHTML('<div class="object-help help"> <svg class="icon icon-help default" aria-hidden="true" focusable="false"><use href="#icon-help"></use></svg> Not required if event is on a single day</div>', result)
 
         # result should contain rendered content from descendants
         self.assertIn('Abergavenny sheepdog trials</textarea>', result)
@@ -431,7 +430,6 @@ class TestFieldPanel(TestCase):
         end_date_panel_with_overridden_heading = (FieldPanel('date_to', classname='full-width', heading="New heading")
                                                   .bind_to(model=EventPage, request=self.request, form=self.EventPageForm()))
         self.assertEqual(end_date_panel_with_overridden_heading.heading, "New heading")
-
 
     def test_render_as_object(self):
         form = self.EventPageForm(
@@ -952,7 +950,6 @@ class TestInlinePanel(TestCase, WagtailTestUtils):
         panel = speaker_inline_panel.bind_to(instance=event_page, form=form)
 
         self.assertIn('maxForms: 1000', panel.render_js_init())
-
 
     def test_invalid_inlinepanel_declaration(self):
         with self.ignore_deprecation_warnings():

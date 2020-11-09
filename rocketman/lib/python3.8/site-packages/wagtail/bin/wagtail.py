@@ -4,6 +4,7 @@ import fnmatch
 import os
 import re
 import sys
+
 from argparse import ArgumentParser
 from difflib import unified_diff
 
@@ -80,7 +81,7 @@ class CreateProject(Command):
         template_path = os.path.join(wagtail_path, 'project_template')
 
         # Call django-admin startproject
-        utility_args = ['django-admin.py',
+        utility_args = ['django-admin',
                         'startproject',
                         '--template=' + template_path,
                         '--ext=html,rst',
@@ -242,9 +243,20 @@ class UpdateModulePaths(Command):
         return change_count
 
 
+class Version(Command):
+    description = "List which version of Wagtail you are using"
+
+    def run(self):
+        import wagtail
+        version = wagtail.get_version(wagtail.VERSION)
+
+        print("You are using Wagtail %(version)s" % {'version': version})
+
+
 COMMANDS = {
     'start': CreateProject(),
     'updatemodulepaths': UpdateModulePaths(),
+    '--version': Version()
 }
 
 

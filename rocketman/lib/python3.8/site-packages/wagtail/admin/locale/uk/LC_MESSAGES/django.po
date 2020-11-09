@@ -13,8 +13,8 @@ msgid ""
 msgstr ""
 "Project-Id-Version: Wagtail\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2020-08-21 13:30+0100\n"
-"PO-Revision-Date: 2020-08-21 12:31+0000\n"
+"POT-Creation-Date: 2020-10-23 12:34+0100\n"
+"PO-Revision-Date: 2020-10-23 11:36+0000\n"
 "Last-Translator: Matt Westcott <matthew@torchbox.com>\n"
 "Language-Team: Ukrainian (http://www.transifex.com/torchbox/wagtail/language/"
 "uk/)\n"
@@ -334,63 +334,6 @@ msgstr "Закрити"
 msgid "Edit '{title}'"
 msgstr "Редагувати '{title}'"
 
-msgid "January"
-msgstr "Січень"
-
-msgid "February"
-msgstr "Лютий"
-
-msgid "March"
-msgstr "Березень"
-
-msgid "April"
-msgstr "Квітень"
-
-msgid "May"
-msgstr "Травень"
-
-msgid "June"
-msgstr "Червень"
-
-msgid "July"
-msgstr "Липень"
-
-msgid "August"
-msgstr "Серпень"
-
-msgid "September"
-msgstr "Вересень"
-
-msgid "October"
-msgstr "Жовтень"
-
-msgid "November"
-msgstr "Листопад"
-
-msgid "December"
-msgstr "Грудень"
-
-msgid "Sun"
-msgstr "Неділя"
-
-msgid "Mon"
-msgstr "Понеділок"
-
-msgid "Tue"
-msgstr "Вівторок"
-
-msgid "Wed"
-msgstr "Середа"
-
-msgid "Thu"
-msgstr "Четвер"
-
-msgid "Fri"
-msgstr "П'ятниця"
-
-msgid "Sat"
-msgstr "Субота"
-
 msgid "Error 404: Page not found"
 msgstr "Помилка 404: сторінку не знайдено"
 
@@ -635,6 +578,9 @@ msgstr "Тип"
 msgid "Edited"
 msgstr "Редаговано"
 
+msgid "Preview this page"
+msgstr "Попередній перегляд"
+
 msgid "Approve"
 msgstr "Підтвердити"
 
@@ -724,6 +670,9 @@ msgstr ""
 
 msgid "Publishing…"
 msgstr "Опубліковується..."
+
+msgid "Publish this version"
+msgstr "Опублікувати цю версію"
 
 msgid "Saving…"
 msgstr "Йде збереження..."
@@ -891,12 +840,25 @@ msgstr "Створити %(page_type)s"
 msgid "New"
 msgstr "Створити"
 
+msgid "Actions"
+msgstr "Дії"
+
 msgid "This page has unsaved changes."
 msgstr "Ця сторінка має незбережені зміни"
 
 #, python-format
 msgid "Editing %(page_type)s: %(title)s"
 msgstr "Редагування %(page_type)s: %(title)s"
+
+msgid "History"
+msgstr "Історія змін"
+
+#, python-format
+msgid "Page history for %(subtitle)s"
+msgstr "Історія змін для %(subtitle)s"
+
+msgid "Action"
+msgstr "Дія"
 
 msgid "Live version"
 msgstr "Версія наживо"
@@ -1064,6 +1026,9 @@ msgstr ""
 "                і тоді зробіть ще раз попередній перегляд.\n"
 "            "
 
+msgid "Review this version"
+msgstr "Переглянути цю версію"
+
 msgid "Cancel scheduled publish"
 msgstr "Скасувати заплановану публікацію"
 
@@ -1073,6 +1038,9 @@ msgstr "Порівняння %(title)s"
 
 msgid "Comparing"
 msgstr "Порівняння"
+
+msgid "Page history"
+msgstr "Історія змін"
 
 msgid "Fields"
 msgstr "Поля"
@@ -1248,6 +1216,12 @@ msgstr "Вийти"
 msgid "Other searches"
 msgstr "Інші пошуки"
 
+msgid "Published"
+msgstr "Опубліковано"
+
+msgid "Draft saved"
+msgstr "Чернетку збережено"
+
 msgid "Go to Wagtail admin interface"
 msgstr "Перейти до адмінського інтерфейсу Wagtail"
 
@@ -1312,32 +1286,47 @@ msgstr "Ви впевнені, що хочете видалили цю коле�
 msgid "Editing"
 msgstr "Редагування"
 
-msgid "Page '{0}' created and scheduled for publishing."
-msgstr "Сторінку '{0}' створено і заплановано до публікації. "
+msgid "Page '{0}' and {1} subpages copied."
+msgstr "Сторінка '{0}' і {1} вкладені сторінки скопійовано."
 
-msgid "View live"
-msgstr "Побачити наживо"
-
-msgid "Page '{0}' created and published."
-msgstr "Сторінку '{0}' створено і опубліковано."
+msgid "Page '{0}' copied."
+msgstr "Сторінку '{0}' скопійовано."
 
 msgid "View draft"
 msgstr "Переглянути чернетку"
 
-msgid "Page '{0}' created and submitted for moderation."
-msgstr "Сторінку '{0}' створено і направлено на модерацію."
+msgid "View live"
+msgstr "Побачити наживо"
 
 msgid "Page '{0}' created."
 msgstr "Сторінку '{0}' створено."
 
+msgid "Page '{0}' created and scheduled for publishing."
+msgstr "Сторінку '{0}' створено і заплановано до публікації. "
+
+msgid "Page '{0}' created and published."
+msgstr "Сторінку '{0}' створено і опубліковано."
+
+msgid "Page '{0}' created and submitted for moderation."
+msgstr "Сторінку '{0}' створено і направлено на модерацію."
+
 msgid "The page could not be created due to validation errors"
 msgstr "Цю сторінку не можна створити через помилки валідації"
+
+msgid "Page '{0}' deleted."
+msgstr "Сторінку '{0}' видалено."
 
 msgid "This page is currently awaiting moderation"
 msgstr "Ця сторінка очікує на модерацію"
 
+msgid "Page '{0}' has been updated."
+msgstr "Сторінку '{0}' оновлено."
+
 msgid "Page '{0}' has been scheduled for publishing."
 msgstr "Сторінку '{0}' заплановано до публікації."
+
+msgid "Version from {0} of page '{1}' has been published."
+msgstr "Версію від {0} сторінки '{1}' опубліковано."
 
 msgid "Page '{0}' has been published."
 msgstr "Сторінку '{0}' опубліковано."
@@ -1345,29 +1334,14 @@ msgstr "Сторінку '{0}' опубліковано."
 msgid "Page '{0}' has been submitted for moderation."
 msgstr "Сторінку '{0}' надіслано на модерацію."
 
-msgid "Page '{0}' has been updated."
-msgstr "Сторінку '{0}' оновлено."
-
 msgid "The page could not be saved as it is locked"
 msgstr "Сторінку не можна зберегти, бо вона заблокована"
 
 msgid "The page could not be saved due to validation errors"
 msgstr "Сторінку не можна зберегти через помилки валідації"
 
-msgid "Page '{0}' deleted."
-msgstr "Сторінку '{0}' видалено."
-
-msgid "Page '{0}' unpublished."
-msgstr "Сторінку '{0}' знято з публікації."
-
-msgid "Page '{0}' moved."
-msgstr "Сторінку '{0}' переміщено."
-
-msgid "Page '{0}' and {1} subpages copied."
-msgstr "Сторінка '{0}' і {1} вкладені сторінки скопійовано."
-
-msgid "Page '{0}' copied."
-msgstr "Сторінку '{0}' скопійовано."
+msgid "Page '{0}' is now unlocked."
+msgstr "Сторінку '{0}' розблоковано."
 
 msgid "The page '{0}' is not currently awaiting moderation."
 msgstr "Сторінка '{0}' не перебуває в очікуванні модерації."
@@ -1384,8 +1358,16 @@ msgstr "Публікацію сторінки '{0}' відхилено."
 msgid "Failed to send rejection notifications"
 msgstr "Надсилання сповіщення про відхилення зазнало невдачі"
 
-msgid "Page '{0}' is now unlocked."
-msgstr "Сторінку '{0}' розблоковано."
+msgid "Page '{0}' moved."
+msgstr "Сторінку '{0}' переміщено."
+
+#, python-format
+msgid ""
+"You are viewing a previous version of this page from <b>%(created_at)s</b> "
+"by %(user)s"
+msgstr ""
+"Ви переглядаєте колишню версію цієї сторінки від <b>%(created_at)s</b> "
+"створену %(user)s "
 
 msgid "Earliest"
 msgstr "Найбільш раннє"
@@ -1396,8 +1378,18 @@ msgstr "Останнє"
 msgid "revision {0} of \"{1}\""
 msgstr "ревізія {0} для \"{1}\""
 
+msgid "Page '{0}' unpublished."
+msgstr "Сторінку '{0}' знято з публікації."
+
+msgid "Site history"
+msgstr "Історія сайту"
+
 msgid "More"
 msgstr "Більше"
+
+#, python-format
+msgid "Unpublish page '%(title)s'"
+msgstr "Зняти з публікації сторінку '%(title)s'"
 
 msgid "Set profile picture"
 msgstr "Задати зображення профілю"
@@ -1437,6 +1429,13 @@ msgstr "Курсив"
 
 msgid "Link"
 msgstr "Посилання"
+
+msgid "Unpublished"
+msgstr "Знято з публікації"
+
+#, python-format
+msgid "Renamed from '%(old)s' to '%(new)s'"
+msgstr "Перейменовано з '%(old)s' в '%(new)s'"
 
 msgid "Choose an item"
 msgstr "Оберіть елемент"

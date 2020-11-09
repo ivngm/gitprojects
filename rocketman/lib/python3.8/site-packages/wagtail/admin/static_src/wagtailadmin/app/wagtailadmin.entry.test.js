@@ -1,5 +1,6 @@
-const wagtail = require('wagtail-client');
-wagtail.initExplorer = jest.fn();
+jest.mock("../../../../../client/src/index");
+
+const wagtail = require('../../../../../client/src/index');
 
 document.addEventListener = jest.fn();
 

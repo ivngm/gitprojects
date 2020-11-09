@@ -3,6 +3,7 @@ from django.http import HttpResponse
 from django.templatetags.static import static
 
 import wagtail.admin.rich_text.editors.draftail.features as draftail_features
+
 from wagtail.admin.action_menu import ActionMenuItem
 from wagtail.admin.menu import MenuItem
 from wagtail.admin.rich_text import HalloPlugin
@@ -154,6 +155,16 @@ def register_relax_menu_item(menu_items, request, context):
 
 @hooks.register('construct_page_listing_buttons')
 def register_page_listing_button_item(buttons, page, page_perms, is_parent=False, context=None):
+    item = Button(
+        label="Dummy Button",
+        url='/dummy-button',
+        priority=10,
+    )
+    buttons.append(item)
+
+
+@hooks.register('construct_snippet_listing_buttons')
+def register_snippet_listing_button_item(buttons, snippet, user, context=None):
     item = Button(
         label="Dummy Button",
         url='/dummy-button',

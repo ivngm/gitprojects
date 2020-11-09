@@ -6,7 +6,7 @@ from django.test.utils import override_settings
 from django.urls.exceptions import NoReverseMatch
 from django.utils.safestring import SafeString
 
-from wagtail.core.models import Page, Site
+from wagtail.core.models import Locale, Page, Site, SiteRootPath
 from wagtail.core.templatetags.wagtailcore_tags import richtext, slugurl
 from wagtail.core.utils import resolve_model_string
 from wagtail.tests.testapp.models import SimplePage
@@ -156,7 +156,7 @@ class TestSiteRootPathsCache(TestCase):
         _ = homepage.url  # noqa
 
         # Check that the cache has been set correctly
-        self.assertEqual(cache.get('wagtail_site_root_paths'), [(1, '/home/', 'http://localhost')])
+        self.assertEqual(cache.get('wagtail_site_root_paths'), [SiteRootPath(site_id=1, root_path='/home/', root_url='http://localhost', language_code='en')])
 
     def test_cache_clears_when_site_saved(self):
         """
@@ -263,6 +263,20 @@ class TestSiteRootPathsCache(TestCase):
 
         # Check url
         self.assertEqual(homepage.url, '/')
+
+    @override_settings(WAGTAIL_I18N_ENABLED=True)
+    def test_cache_clears_when_site_root_is_translated_as_alias(self):
+        # Get homepage
+        homepage = Page.objects.get(url_path='/home/')
+
+        # Warm up the cache by getting the url
+        _ = homepage.url  # noqa
+
+        # Translate the homepage
+        translated_homepage = homepage.copy_for_translation(Locale.objects.create(language_code="fr"), alias=True)
+
+        # Check url
+        self.assertEqual(translated_homepage.url, '/')
 
 
 class TestResolveModelString(TestCase):

@@ -1,9 +1,11 @@
+import itertools
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import permission_required
 from django.db import connection
 from django.db.models import Max, Q
-from django.http import Http404
+from django.http import Http404, HttpResponse
 from django.template.loader import render_to_string
 from django.template.response import TemplateResponse
 
@@ -12,6 +14,7 @@ from wagtail.admin.site_summary import SiteSummaryPanel
 from wagtail.core import hooks
 from wagtail.core.models import (
     Page, PageRevision, TaskState, UserPagePermissionsProxy, WorkflowState)
+
 
 User = get_user_model()
 
@@ -28,6 +31,20 @@ class UpgradeNotificationPanel:
     def render(self):
         if self.request.user.is_superuser and getattr(settings, "WAGTAIL_ENABLE_UPDATE_CHECK", True):
             return render_to_string('wagtailadmin/home/upgrade_notification.html', {}, request=self.request)
+        else:
+            return ""
+
+
+class IE11WarningPanel:
+    name = 'ie11_warning'
+    order = 110
+
+    def __init__(self, request):
+        self.request = request
+
+    def render(self):
+        if self.request.user.is_superuser:
+            return render_to_string('wagtailadmin/home/ie11_warning.html', {}, request=self.request)
         else:
             return ""
 
@@ -156,6 +173,7 @@ def home(request):
     panels = [
         SiteSummaryPanel(request),
         UpgradeNotificationPanel(request),
+        IE11WarningPanel(request),
         WorkflowPagesToModeratePanel(request),
         PagesForModerationPanel(request),
         UserPagesInWorkflowModerationPanel(request),
@@ -191,3 +209,19 @@ def default(request):
     redirected to the login page.
     """
     raise Http404
+
+
+_icons_html = None
+
+
+def icons():
+    global _icons_html
+    if _icons_html is None:
+        icon_hooks = hooks.get_hooks('register_icons')
+        all_icons = sorted(itertools.chain.from_iterable(hook([]) for hook in icon_hooks))
+        _icons_html = render_to_string("wagtailadmin/shared/icons.html", {'icons': all_icons})
+    return _icons_html
+
+
+def sprite(request):
+    return HttpResponse(icons())
